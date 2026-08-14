@@ -1,0 +1,10 @@
+{
+  "name": "Học Toán AI & Cử Chỉ Bàn Tay",
+  "description": "Ứng dụng Đấu Trường Toán Bàn Tay AI kết hợp nhận diện camera AI trực tiếp và phân tích kết quả thị giác máy tính.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
