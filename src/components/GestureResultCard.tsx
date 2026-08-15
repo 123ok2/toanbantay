@@ -152,15 +152,15 @@ export const GestureResultCard: React.FC<GestureResultCardProps> = ({
         )}
       </div>
 
-      {/* Action Buttons (Compact) */}
+      {/* Action Buttons (Mobile Touch Friendly) */}
       <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
         {/* Speak Result Button */}
         <button
           onClick={handleSpeak}
-          className="flex-1 py-1.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs border border-indigo-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          className="flex-1 min-h-[44px] py-2 px-3.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs sm:text-sm border border-indigo-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs active:scale-98"
           title="Đọc kết quả bằng giọng nói tiếng Việt"
         >
-          <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
+          <Volume2 className="w-4 h-4 text-indigo-600" />
           <span>Đọc Kết Quả</span>
         </button>
 
@@ -170,10 +170,10 @@ export const GestureResultCard: React.FC<GestureResultCardProps> = ({
             soundManager.playClick();
             onClearResult();
           }}
-          className="py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          className="min-h-[44px] py-2 px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
           title="Xóa kết quả hiện tại"
         >
-          <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+          <RotateCcw className="w-4 h-4 text-slate-500" />
           <span>Xóa</span>
         </button>
       </div>

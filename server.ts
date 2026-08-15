@@ -29,6 +29,35 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", geminiAvailable: !!getGeminiClient() });
 });
 
+// Natural Vietnamese Text-To-Speech (TTS) Proxy Endpoint
+app.get("/api/tts", async (req, res) => {
+  try {
+    const text = (req.query.text as string) || "Chính xác";
+    const cleanText = text.trim().slice(0, 200);
+    const encoded = encodeURIComponent(cleanText);
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=vi&client=tw-ob`;
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: "TTS service unavailable" });
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error("TTS proxy error:", err);
+    res.status(500).json({ error: "Failed to synthesize speech" });
+  }
+});
+
 // Gemini AI Math Tutor endpoint for solving & explaining math problems
 app.post("/api/solve-math", async (req, res) => {
   try {

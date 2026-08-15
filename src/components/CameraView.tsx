@@ -10,6 +10,8 @@ import {
   Eye,
   Activity,
   CheckCircle2,
+  SwitchCamera,
+  Smartphone,
 } from "lucide-react";
 import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { classifyMultipleHands, analyzeSingleHandFingers } from "../utils/gestureClassifier";
@@ -40,6 +42,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [isModelLoading, setIsModelLoading] = useState<boolean>(true);
   const [modelError, setModelError] = useState<string | null>(null);
   const [mirrorMode, setMirrorMode] = useState<boolean>(true);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [handCountState, setHandCountState] = useState<number>(0);
   const [fps, setFps] = useState<number>(0);
 
@@ -108,14 +111,21 @@ export const CameraView: React.FC<CameraViewProps> = ({
   }, []);
 
   // Start Camera Stream
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (requestedFacing?: "user" | "environment") => {
     setHasPermissionError(null);
+    const targetFacing = requestedFacing || facingMode;
     try {
+      // Stop existing stream if running
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640 },
           height: { ideal: 480 },
-          facingMode: "user",
+          facingMode: targetFacing,
         },
         audio: false,
       });
@@ -139,7 +149,20 @@ export const CameraView: React.FC<CameraViewProps> = ({
       setHasPermissionError(errorMsg);
       setIsStreaming(false);
     }
-  }, [setIsStreaming]);
+  }, [facingMode, setIsStreaming]);
+
+  // Switch between front (selfie) and rear (environment) cameras for mobile phones
+  const toggleCameraFacing = useCallback(async () => {
+    soundManager.playClick();
+    const nextFacing = facingMode === "user" ? "environment" : "user";
+    setFacingMode(nextFacing);
+    // When using environment camera, mirror mode should be turned off
+    setMirrorMode(nextFacing === "user");
+
+    if (isStreaming) {
+      await startCamera(nextFacing);
+    }
+  }, [facingMode, isStreaming, startCamera]);
 
   // Stop Camera Stream
   const stopCamera = useCallback(() => {
@@ -421,12 +444,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Switch Front/Rear Camera Button (Especially useful on Mobile) */}
+          <button
+            onClick={toggleCameraFacing}
+            className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer shadow-2xs min-h-[36px]"
+            title="Đổi camera trước (Selfie) hoặc camera sau"
+          >
+            <SwitchCamera className="w-3.5 h-3.5" />
+            <span className="text-[11px]">
+              {facingMode === "user" ? "Cam Trước" : "Cam Sau"}
+            </span>
+          </button>
+
           {/* Mirror Flip Button */}
           {isStreaming && (
             <button
               onClick={() => setMirrorMode(!mirrorMode)}
-              className="p-1.5 rounded-lg text-slate-600 bg-slate-100 hover:bg-slate-200 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer"
+              className="p-1.5 sm:px-2 sm:py-1.5 rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer min-h-[36px]"
               title="Lật hình camera (Gương)"
             >
               <FlipHorizontal className="w-3.5 h-3.5" />
@@ -436,15 +471,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           {/* Model Status Indicator */}
           {isModelLoading ? (
-            <span className="flex items-center gap-1 text-[11px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+            <span className="flex items-center gap-1 text-[11px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-1 rounded-full border border-indigo-200">
               <Loader2 className="w-3 h-3 animate-spin" /> Tải AI...
             </span>
           ) : modelError ? (
-            <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+            <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-1 rounded-full border border-amber-200">
               Dự phòng
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+            <span className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
               <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sẵn sàng
             </span>
           )}
@@ -452,7 +487,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       </div>
 
       {/* Main Camera Video Feed & Canvas Wrapper (Compact & Responsive) */}
-      <div className="relative w-full aspect-4/3 max-h-[280px] sm:max-h-[320px] bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-indigo-100 flex items-center justify-center group">
+      <div className="relative w-full aspect-4/3 max-h-[260px] sm:max-h-[320px] bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-indigo-100 flex items-center justify-center group">
         {/* Video Element */}
         <video
           ref={videoRef}
@@ -510,18 +545,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
               Bật camera để AI nhận diện ngón tay và giải toán tương tác trực tiếp.
             </p>
             <button
-              onClick={startCamera}
+              onClick={() => startCamera()}
               disabled={isModelLoading}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs shadow-md shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
             >
               {isModelLoading ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   Đang khởi tạo AI...
                 </>
               ) : (
                 <>
-                  <Video className="w-3.5 h-3.5" />
+                  <Video className="w-4 h-4" />
                   Bật Camera Ngay
                 </>
               )}
@@ -538,8 +573,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
               {hasPermissionError}
             </p>
             <button
-              onClick={startCamera}
-              className="px-3.5 py-1.5 rounded-lg bg-white text-rose-950 font-bold text-xs hover:bg-rose-50 transition-all shadow-sm cursor-pointer"
+              onClick={() => startCamera()}
+              className="px-4 py-2 rounded-lg bg-white text-rose-950 font-bold text-xs hover:bg-rose-50 transition-all shadow-sm cursor-pointer min-h-[44px]"
             >
               Thử Lại Bật Camera
             </button>
@@ -547,24 +582,36 @@ export const CameraView: React.FC<CameraViewProps> = ({
         )}
       </div>
 
-      {/* Main Control Buttons Bar (Compact) */}
-      <div className="w-full mt-3 flex flex-wrap items-center justify-center gap-2">
+      {/* Main Control Buttons Bar (Mobile-friendly with 44px min touch height) */}
+      <div className="w-full mt-3 flex flex-wrap sm:flex-nowrap items-center justify-center gap-2">
         {!isStreaming ? (
           <button
-            onClick={startCamera}
+            onClick={() => startCamera()}
             disabled={isModelLoading}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white font-bold text-xs shadow-sm shadow-indigo-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="flex-1 min-h-[44px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white font-bold text-xs sm:text-sm shadow-sm shadow-indigo-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
-            <Video className="w-3.5 h-3.5" />
+            <Video className="w-4 h-4" />
             Bật Camera Nhận Diện
           </button>
         ) : (
           <button
             onClick={stopCamera}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm shadow-rose-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            className="flex-1 min-h-[44px] px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs sm:text-sm shadow-sm shadow-rose-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <VideoOff className="w-3.5 h-3.5" />
+            <VideoOff className="w-4 h-4" />
             Dừng Camera
+          </button>
+        )}
+
+        {/* Switch Camera quick button for mobile */}
+        {isStreaming && (
+          <button
+            onClick={toggleCameraFacing}
+            className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+            title="Đổi camera trước hoặc sau"
+          >
+            <SwitchCamera className="w-4 h-4 text-indigo-600" />
+            <span className="hidden sm:inline">Đổi Camera</span>
           </button>
         )}
 
@@ -573,22 +620,30 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <button
             onClick={handleGeminiClick}
             disabled={isAnalyzingGemini}
-            className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             title="Gửi khung hình hiện tại cho Gemini AI phân tích sâu"
           >
             {isAnalyzingGemini ? (
               <>
-                <Loader2 className="w-3.5 h-3.5 text-purple-600 animate-spin" />
-                Gemini đang phân tích...
+                <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
+                Đang phân tích...
               </>
             ) : (
               <>
-                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                Hỏi Gemini AI Cử Chỉ
+                <Sparkles className="w-4 h-4 text-purple-600" />
+                Hỏi Gemini AI
               </>
             )}
           </button>
         )}
+      </div>
+
+      {/* Mobile-Friendly Usage Tip */}
+      <div className="w-full mt-2.5 bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-1.5 flex items-center gap-2 text-[11px] text-slate-600">
+        <Smartphone className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+        <span className="leading-tight">
+          <strong>Mẹo:</strong> Để điện thoại cố định trên bàn, giơ bàn tay cách camera 30–50cm trong điều kiện đủ sáng.
+        </span>
       </div>
     </div>
   );

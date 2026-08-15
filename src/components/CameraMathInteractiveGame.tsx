@@ -7,6 +7,7 @@ import {
   XCircle,
   RotateCcw,
   Volume2,
+  VolumeX,
   Zap,
   Hand,
   Flame,
@@ -302,6 +303,8 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
   const [feedbackState, setFeedbackState] = useState<"idle" | "correct" | "incorrect">("idle");
   const [autoNextTimer, setAutoNextTimer] = useState<number | null>(null);
   const [totalQuestionsAnswered, setTotalQuestionsAnswered] = useState<number>(0);
+  const [isTestingSound, setIsTestingSound] = useState<boolean>(false);
+  const [speechOn, setSpeechOn] = useState<boolean>(true);
 
   const feedbackStateRef = useRef<"idle" | "correct" | "incorrect">("idle");
   const isLockedRef = useRef<boolean>(false);
@@ -342,8 +345,7 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
     lastDetectedFingerRef.current = null;
 
     const q = currentQRef.current;
-    soundManager.playSuccessChime();
-    soundManager.speakText(`Chính xác! ${q.problemStr} bằng ${q.correctAnswer}`);
+    soundManager.playCorrectFeedback(q.correctAnswer, streak);
 
     // Trigger confetti 🎉
     confetti({
@@ -449,32 +451,75 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
       <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Header Bar & Quick Stats (Compact) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3 relative z-10 border-b border-white/10 pb-2.5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-orange-500 to-pink-500 flex items-center justify-center text-slate-950 shadow-md">
-            <Calculator className="w-4 h-4 stroke-[2.5]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base sm:text-lg font-black text-white leading-tight">
-                Đấu Trường Toán Bàn Tay AI
-              </h2>
-              <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Sparkles className="w-2.5 h-2.5 text-amber-300" />
-                Trả lời qua Camera
-              </span>
+      {/* Header Bar & Quick Stats (Compact & Mobile-Optimized) */}
+      <div className="flex flex-col gap-2.5 mb-3 relative z-10 border-b border-white/10 pb-2.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-amber-400 via-orange-500 to-pink-500 flex items-center justify-center text-slate-950 shadow-md shrink-0">
+              <Calculator className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
             </div>
-            <p className="text-[11px] text-indigo-200">
-              Nhìn đề &rarr; Xòe đúng số ngón tay trước camera &rarr; AI tự động chấm điểm!
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-black text-white leading-tight">
+                  Đấu Trường Toán Bàn Tay AI
+                </h2>
+                <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5 text-amber-300" />
+                  Camera Live
+                </span>
+              </div>
+              <p className="text-[10px] sm:text-[11px] text-indigo-200">
+                Nhìn đề &rarr; Xòe đúng số ngón tay trước camera &rarr; AI tự động chấm điểm!
+              </p>
+            </div>
+          </div>
+
+          {/* Stats Pills & Controls */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            <div className="bg-white/10 px-2.5 py-1 rounded-xl border border-white/10 text-center flex items-center gap-1">
+              <Trophy className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-xs font-black text-amber-300">{score}</span>
+            </div>
+
+            <div className="bg-white/10 px-2.5 py-1 rounded-xl border border-white/10 text-center flex items-center gap-1">
+              <Flame className="w-3.5 h-3.5 text-orange-400 fill-orange-400 animate-bounce" />
+              <span className="text-xs font-black text-orange-400">{streak}</span>
+            </div>
+
+            <button
+              onClick={handleResetGame}
+              className="p-1.5 bg-white/10 hover:bg-white/20 text-indigo-200 hover:text-white rounded-xl border border-white/10 transition-all cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
+              title="Chơi lại từ đầu"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Test Sound & Voice Feedback Button */}
+            <button
+              onClick={() => {
+                if (isTestingSound) return;
+                setIsTestingSound(true);
+                soundManager.playCorrectFeedback(currentQ.correctAnswer, 1);
+                setTimeout(() => setIsTestingSound(false), 1600);
+              }}
+              className={`px-2.5 py-1 rounded-xl border text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs min-h-[34px] ${
+                isTestingSound
+                  ? "bg-amber-400 text-slate-950 border-amber-300 scale-105"
+                  : "bg-indigo-600/60 hover:bg-indigo-600 text-white border-indigo-400/40"
+              }`}
+              title="Nhấn để nghe thử giọng phát âm chuẩn tiếng Việt"
+            >
+              <Volume2 className={`w-3.5 h-3.5 ${isTestingSound ? "animate-pulse" : ""}`} />
+              <span className="hidden sm:inline">
+                {isTestingSound ? "Đang phát..." : "Thử âm thanh"}
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Level Selector & Score/Streak Stats */}
-        <div className="flex items-center flex-wrap gap-2">
-          {/* Level Tabs */}
-          <div className="flex items-center flex-wrap bg-white/5 p-0.5 rounded-xl border border-white/10 gap-0.5">
+        {/* Grade Selector Tabs (Horizontally scrollable on Mobile) */}
+        <div className="w-full overflow-x-auto no-scrollbar py-0.5">
+          <div className="inline-flex items-center bg-white/5 p-1 rounded-xl border border-white/10 gap-1 min-w-max">
             {(
               [
                 "Tất cả",
@@ -492,7 +537,7 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
                   setSelectedGrade(grade);
                   setCurrentQuestionIndex(0);
                 }}
-                className={`px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap min-h-[32px] ${
                   selectedGrade === grade
                     ? "bg-amber-400 text-slate-950 shadow-xs scale-105"
                     : "text-indigo-200 hover:bg-white/10"
@@ -501,27 +546,6 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
                 {grade}
               </button>
             ))}
-          </div>
-
-          {/* Stats Pills */}
-          <div className="flex items-center gap-1.5">
-            <div className="bg-white/10 px-2.5 py-1 rounded-xl border border-white/10 text-center flex items-center gap-1">
-              <Trophy className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-xs font-black text-amber-300">{score}</span>
-            </div>
-
-            <div className="bg-white/10 px-2.5 py-1 rounded-xl border border-white/10 text-center flex items-center gap-1">
-              <Flame className="w-3.5 h-3.5 text-orange-400 fill-orange-400 animate-bounce" />
-              <span className="text-xs font-black text-orange-400">{streak}</span>
-            </div>
-
-            <button
-              onClick={handleResetGame}
-              className="p-1.5 bg-white/10 hover:bg-white/20 text-indigo-200 hover:text-white rounded-xl border border-white/10 transition-all cursor-pointer"
-              title="Chơi lại từ đầu"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
           </div>
         </div>
       </div>
@@ -556,59 +580,59 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
         </div>
 
         {/* Compact Formula & Analogy in one row */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 my-2">
-          <div className="text-3xl sm:text-4xl font-black text-white tracking-wider font-mono drop-shadow-sm">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-4 my-2.5 sm:my-3">
+          <div className="text-3xl sm:text-5xl font-black text-white tracking-wider font-mono drop-shadow-sm">
             {currentQ.problemStr}
           </div>
 
-          <div className="text-xs sm:text-sm font-bold text-amber-300 bg-white/5 py-1 px-3 rounded-xl border border-white/10">
+          <div className="text-xs sm:text-sm font-bold text-amber-300 bg-white/5 py-1.5 px-3.5 rounded-xl border border-white/10">
             {currentQ.emojiAnalogy}
           </div>
         </div>
 
         {/* Feedback State (Compact) */}
         {feedbackState === "correct" && (
-          <div className="bg-emerald-500/20 border border-emerald-400 text-emerald-200 py-1.5 px-3 rounded-xl my-2 animate-bounce max-w-sm mx-auto text-xs flex items-center justify-center gap-2">
+          <div className="bg-emerald-500/20 border border-emerald-400 text-emerald-200 py-2 px-3.5 rounded-xl my-2 animate-bounce max-w-sm mx-auto text-xs sm:text-sm flex items-center justify-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="font-extrabold text-emerald-300">CHÍNH XÁC! 🎉 {currentQ.explanation}</span>
           </div>
         )}
 
         {feedbackState === "incorrect" && (
-          <div className="bg-rose-500/20 border border-rose-400 text-rose-200 py-1.5 px-3 rounded-xl my-2 animate-pulse max-w-sm mx-auto text-xs flex items-center justify-center gap-2">
+          <div className="bg-rose-500/20 border border-rose-400 text-rose-200 py-2 px-3.5 rounded-xl my-2 animate-pulse max-w-sm mx-auto text-xs sm:text-sm flex items-center justify-center gap-2">
             <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span className="font-bold text-rose-300">Chưa đúng rồi! Hãy đếm lại số ngón tay nhé!</span>
           </div>
         )}
 
         {/* Interactive Instruction Banner & Quick Buttons */}
-        <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between flex-wrap gap-2 text-[11px] text-indigo-200">
+        <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between flex-wrap gap-2 text-[11px] sm:text-xs text-indigo-200">
           <div className="flex items-center gap-1.5">
             <Hand className="w-4 h-4 text-amber-300 animate-pulse shrink-0" />
             <span>
-              Giơ đúng <strong className="text-amber-300">{currentQ.correctAnswer} ngón tay</strong> trước camera hoặc bấm chọn:
+              Giơ đúng <strong className="text-amber-300 text-sm font-black">{currentQ.correctAnswer} ngón tay</strong> trước camera hoặc bấm chọn:
             </span>
           </div>
 
           <button
             onClick={handleNextQuestion}
-            className="text-[11px] font-bold text-indigo-300 hover:text-white flex items-center gap-1 bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded-lg border border-white/10 cursor-pointer shrink-0 transition-all"
+            className="text-[11px] sm:text-xs font-bold text-indigo-200 hover:text-white flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl border border-white/10 cursor-pointer shrink-0 transition-all min-h-[36px]"
           >
             <span>Đổi câu khác</span>
-            <ArrowRight className="w-3 h-3" />
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* Quick Answer Buttons (Compact 0 to 10) */}
-        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        {/* Quick Answer Buttons (Mobile Touch Grid 0 to 10) */}
+        <div className="mt-2.5 flex flex-wrap justify-center gap-1.5 sm:gap-2">
           {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
             <button
               key={num}
               onClick={() => handleManualAnswer(num)}
-              className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg font-black text-xs border transition-all cursor-pointer shadow-xs flex items-center justify-center ${
+              className={`w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] rounded-xl font-black text-xs sm:text-sm border transition-all cursor-pointer shadow-xs flex items-center justify-center ${
                 num === currentQ.correctAnswer && feedbackState === "correct"
                   ? "bg-emerald-500 text-slate-950 border-emerald-300 scale-110"
-                  : "bg-white/10 hover:bg-amber-400 hover:text-slate-950 text-white border-white/20"
+                  : "bg-white/10 hover:bg-amber-400 hover:text-slate-950 text-white border-white/20 active:scale-95"
               }`}
             >
               {num}
