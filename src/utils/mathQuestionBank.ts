@@ -17,6 +17,65 @@ import { GRADE_8_9_QUESTIONS } from "./mathQuestionsGrade8_9";
 
 export type { MathGradeLevel, MathQuestionTopic, MathQuestion, GradeLevelMeta };
 
+/**
+ * Sanitizes visual analogies so they show the problem structure with '?' without giving away the direct answer
+ */
+export function getPedagogicalAnalogy(question: MathQuestion): string {
+  if (!question) return "";
+  let analogy = question.emojiAnalogy || "";
+  
+  // Replace direct answer values (= 5, ➡️ x = 7, etc.) with '?' or question placeholders
+  analogy = analogy
+    .replace(/=\s*\d+\s*([a-zA-ZÀ-ỹ\p{Emoji}])/gu, "= ? $1")
+    .replace(/=\s*\d+\s*$/g, "= ?")
+    .replace(/➡️\s*x\s*=\s*\d+/g, "➡️ x = ?")
+    .replace(/➡️\s*y\s*=\s*\d+/g, "➡️ y = ?")
+    .replace(/=\s*\(\d+\s*[\+\-\*\/]\s*\d+\)\s*=\s*\d+/g, "= ?")
+    .replace(/=\s*(\d+)\s*ngón/g, "= ? ngón")
+    .trim();
+    
+  return analogy;
+}
+
+/**
+ * Returns a friendly pedagogical hint explaining HOW to solve/think through the problem without revealing the answer
+ */
+export function getPedagogicalHint(question: MathQuestion): string {
+  if (!question) return "Hãy tính nháp từng bước để tìm kết quả chính xác nhé!";
+
+  const prob = question.problemStr || "";
+
+  if (prob.includes("+")) {
+    return "💡 Gợi ý: Hãy bắt đầu từ số đầu tiên, sau đó đếm thêm số đơn vị của số thứ hai để tìm tổng!";
+  }
+  if (prob.includes("-")) {
+    return "💡 Gợi ý: Hãy hình dung số ban đầu rồi bớt đi số trừ, hoặc đếm xem từ số trừ cần thêm bao nhiêu để bằng số bị trừ!";
+  }
+  if (prob.includes("x") || prob.includes("×") || prob.includes("*")) {
+    return "💡 Gợi ý: Phép nhân là cộng lặp lại các nhóm bằng nhau. Hãy nhóm lại và tính tổng!";
+  }
+  if (prob.includes(":") || prob.includes("÷") || prob.includes("/")) {
+    return "💡 Gợi ý: Hãy chia đều vào các nhóm, hoặc nhẩm xem số nào nhân với số chia sẽ bằng số bị chia!";
+  }
+  if (prob.includes("√") || prob.includes("Căn")) {
+    return "💡 Gợi ý: Hãy tìm một số tự nhiên mà khi nhân với chính nó (bình phương) sẽ bằng số dưới dấu căn!";
+  }
+  if (prob.includes("Tìm x") || prob.includes("x²") || prob.includes("3x")) {
+    return "💡 Gợi ý: Áp dụng quy tắc chuyển vế đổi dấu, đưa các số hạng tự do sang một vế rồi chia cho hệ số của x!";
+  }
+  if (prob.includes("ƯCLN") || prob.includes("UCLN")) {
+    return "💡 Gợi ý: Phân tích ra thừa số nguyên tố, sau đó chọn các thừa số chung với số mũ nhỏ nhất!";
+  }
+  if (prob.includes("BCNN")) {
+    return "💡 Gợi ý: Phân tích ra thừa số nguyên tố, sau đó chọn các thừa số chung và riêng với số mũ lớn nhất!";
+  }
+  if (prob.includes("Pythagore") || prob.includes("BC²") || prob.includes("cạnh huyền")) {
+    return "💡 Gợi ý: Áp dụng định lý Pythagore: Bình phương cạnh huyền = Tổng bình phương hai cạnh góc vuông (BC² = AB² + AC²)!";
+  }
+
+  return "💡 Gợi ý: Đọc kỹ đề bài, xác định công thức phù hợp và tính nhẩm từng bước nhé!";
+}
+
 export const GRADE_LEVEL_OPTIONS: GradeLevelMeta[] = [
   {
     id: "Lớp 1 - 2",

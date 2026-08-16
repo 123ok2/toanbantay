@@ -5,10 +5,12 @@ export type AirCanvasState = "INACTIVE" | "ACTIVE" | "CALCULATED";
 
 export type DrawMode = "PINCH" | "INDEX_AIR_PEN";
 
+export type RecognitionState = "IDLE" | "DRAWING" | "WAITING_AUTO_RECOGNIZE" | "RECOGNIZING" | "RECOGNIZED";
+
 export type SingleHandGesture =
   | "INDEX_FINGER_UP" // Bật bảng (Activation)
   | "PINCH_DRAW" // Vẽ (Drawing)
-  | "FIST" // Nắm tay -> Tính toán (Submit & Calculate)
+  | "FIST" // Nắm tay -> Tính toán ngay (Submit & Calculate)
   | "OPEN_PALM" // Xòe bàn tay -> Xóa & Trả quyền (Reset)
   | "UNKNOWN";
 
@@ -49,6 +51,8 @@ export interface AirCanvasFrameData {
   arenaContext: ArenaContextData | null;
   twoHandsCloseProgress: number;
   twoHandsCloseDetected: boolean;
+  recognitionState: RecognitionState;
+  autoRecognizeProgress: number; // 0 - 100%
 }
 
 export const AIR_CANVAS_COLORS = [
@@ -73,16 +77,23 @@ export class AirCanvasEngine {
 
   // Single Hand Gesture Detection State
   public currentGesture: SingleHandGesture = "UNKNOWN";
-  public gestureHint: string = "Chụm ngón cái & trỏ để vẽ • Nắm tay ✊ để tính kết quả";
+  public gestureHint: string = "Chụm ngón cái & trỏ để vẽ • Xòe tay để nhấc bút";
 
-  // Coordinates smoothing filter state
+  // Coordinates smoothing filter state (Dynamic adaptive One-Euro / EMA filter)
   private smoothedPointer: Point2D = { x: 0, y: 0, z: 0 };
   private hasSmoothedPointer: boolean = false;
+  private prevRawPointer: Point2D | null = null;
 
   // Hysteresis & Grace buffer for continuous unbroken strokes
   private isCurrentlyPinching: boolean = false;
   private lastDrawReleaseTime: number = 0;
-  private readonly DRAW_GRACE_PERIOD_MS = 220;
+  private readonly DRAW_GRACE_PERIOD_MS = 180;
+
+  // Smart Deferred Recognition System
+  public recognitionState: RecognitionState = "IDLE";
+  private lastPenUpTime: number = 0;
+  private readonly AUTO_RECOGNIZE_DELAY_MS = 950; // 950ms after pen up -> auto recognize
+  private autoRecognizeProgress: number = 0;
 
   // Gesture hold timers
   private lastActivationTime: number = 0;
@@ -107,13 +118,17 @@ export class AirCanvasEngine {
     this.particles = [];
     this.fastOcr = null;
     this.currentGesture = "UNKNOWN";
-    this.gestureHint = "Chụm 2 bàn tay 1s để Bật/Tắt Bảng 3D • Chụm ngón để vẽ ✍️";
+    this.gestureHint = "Chụm ngón cái & trỏ để vẽ • Xòe tay để nhấc bút";
     this.fistHoldStartTime = 0;
     this.openPalmHoldStartTime = 0;
     this.twoHandsCloseStartTime = 0;
     this.isCurrentlyPinching = false;
     this.hasSmoothedPointer = false;
+    this.prevRawPointer = null;
     this.lastDrawReleaseTime = 0;
+    this.lastPenUpTime = 0;
+    this.recognitionState = "IDLE";
+    this.autoRecognizeProgress = 0;
   }
 
   public setDrawMode(mode: DrawMode) {
@@ -129,7 +144,7 @@ export class AirCanvasEngine {
       this.state = "ACTIVE";
       this.gestureHint =
         this.drawMode === "PINCH"
-          ? "Chụm ngón cái & trỏ để vẽ • Nắm tay ✊ để tính • Xòe tay 🖐️ để xóa"
+          ? "Chụm ngón cái & trỏ để vẽ • Xòe tay để nhấc bút • Tự động nhận diện khi vẽ xong"
           : "Di chuyển ngón trỏ ☝️ để vẽ tự do • Nắm tay ✊ để tính • Xòe tay 🖐️ để xóa";
       soundManager.playHologramOpen();
     } else {
@@ -150,6 +165,9 @@ export class AirCanvasEngine {
     this.currentStroke = null;
     this.fastOcr = null;
     this.state = "ACTIVE";
+    this.recognitionState = "IDLE";
+    this.lastPenUpTime = 0;
+    this.autoRecognizeProgress = 0;
     if (!silent) {
       this.spawnResetParticles();
       soundManager.playWhoosh();
@@ -159,7 +177,12 @@ export class AirCanvasEngine {
   public undoStroke() {
     if (this.strokes.length > 0) {
       this.strokes.pop();
-      this.runFastOcr();
+      if (this.strokes.length > 0) {
+        this.triggerManualRecognition();
+      } else {
+        this.fastOcr = null;
+        this.recognitionState = "IDLE";
+      }
     }
   }
 
@@ -168,7 +191,38 @@ export class AirCanvasEngine {
   }
 
   /**
-   * Fast Single-Hand Landmark Classifier with Hysteresis & Proximity Metric
+   * Triggers manual immediate recognition of all currently drawn strokes
+   */
+  public triggerManualRecognition(): FastRecognitionResult | null {
+    if (this.strokes.length === 0 && (!this.currentStroke || this.currentStroke.length === 0)) {
+      return null;
+    }
+
+    // Finalize current stroke if active
+    if (this.currentStroke && this.currentStroke.length >= 1) {
+      this.strokes.push({
+        points: this.smoothPath(this.currentStroke),
+        color: this.currentColor,
+        width: this.strokeWidth,
+      });
+      this.currentStroke = null;
+    }
+
+    this.runFastOcr();
+    this.recognitionState = "RECOGNIZED";
+    this.autoRecognizeProgress = 100;
+    this.state = "CALCULATED";
+    soundManager.playSubmitSuccess();
+    this.spawnRecognitionParticles();
+
+    return this.fastOcr;
+  }
+
+  /**
+   * Fast Single-Hand Landmark Classifier with PINCH CENTER PEN-TIP & Hysteresis
+   * 
+   * Trạng thái Vẽ (Hạ bút): Chụm đỉnh ngón cái và đỉnh ngón trỏ lại (tâm điểm chụm là đầu bút).
+   * Trạng thái Di chuyển (Nhấc bút): Xòe ngón cái và ngón trỏ ra.
    */
   private classifySingleHand(landmarks: Array<{ x: number; y: number; z?: number }>): {
     gesture: SingleHandGesture;
@@ -194,7 +248,7 @@ export class AirCanvasEngine {
     // Palm scale reference (distance from wrist to middle finger knuckle)
     const handScale = Math.hypot(wrist.x - middleMcp.x, wrist.y - middleMcp.y) || 0.22;
 
-    // Check finger extensions (MediaPipe y increases downwards)
+    // Check finger extensions
     const isIndexExtended = indexTip.y < indexPip.y - 0.015;
     const isMiddleExtended = middleTip.y < middlePip.y - 0.015;
     const isRingExtended = ringTip.y < ringPip.y - 0.015;
@@ -203,55 +257,80 @@ export class AirCanvasEngine {
     const thumbSpread = Math.hypot(thumbTip.x - indexMcp.x, thumbTip.y - indexMcp.y);
     const isThumbExtended = thumbSpread > 0.12;
 
-    // Euclidean pinch distances to index tip and index DIP joint
-    const distToTip = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-    const distToDip = Math.hypot(thumbTip.x - indexDip.x, thumbTip.y - indexDip.y);
-    const minPinchDist = Math.min(distToTip, distToDip);
-
-    // Scale-adaptive pinch ratio (distance relative to palm size)
-    const pinchRatio = minPinchDist / handScale;
-
-    // Hysteresis threshold: entering pinch is easy and natural, exiting has wide buffer
-    const PINCH_ENTER_RATIO = 0.45; // ~0.09 - 0.11 absolute distance
-    const PINCH_EXIT_RATIO = 0.65; // ~0.14 - 0.16 absolute distance
-
-    if (!this.isCurrentlyPinching && (pinchRatio < PINCH_ENTER_RATIO || minPinchDist < 0.09)) {
-      this.isCurrentlyPinching = true;
-    } else if (this.isCurrentlyPinching && pinchRatio > PINCH_EXIT_RATIO && minPinchDist > 0.13) {
-      this.isCurrentlyPinching = false;
-    }
-
-    // Proximity metric 0 to 1 (1 = fully touching)
-    const proximity = Math.max(0, Math.min(1, (0.65 - pinchRatio) / (0.65 - 0.2)));
-
-    // Drawing pointer location (index tip provides highest precision and natural writing feel)
-    const rawPointer: Point2D = {
-      x: indexTip.x,
-      y: indexTip.y,
-      z: indexTip.z,
-    };
-
-    // 1. FIST GESTURE (All 4 fingers curled down)
+    // 1. FIST GESTURE (All 4 fingers curled down) -> Tính toán / Nộp bài ngay
     const isFist = !isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended;
     if (isFist) {
       this.isCurrentlyPinching = false;
-      return { gesture: "FIST", rawPointer, isPinchTriggered: false, proximity: 0, isIndexUpOnly: false };
+      return {
+        gesture: "FIST",
+        rawPointer: { x: indexTip.x, y: indexTip.y, z: indexTip.z },
+        isPinchTriggered: false,
+        proximity: 0,
+        isIndexUpOnly: false,
+      };
     }
 
-    // 2. OPEN PALM GESTURE (All fingers extended open)
+    // 2. OPEN PALM GESTURE (All fingers extended open) -> Xóa bảng
     const isOpenPalm =
       isIndexExtended && isMiddleExtended && isRingExtended && isPinkyExtended && isThumbExtended;
     if (isOpenPalm) {
       this.isCurrentlyPinching = false;
-      return { gesture: "OPEN_PALM", rawPointer, isPinchTriggered: false, proximity: 0, isIndexUpOnly: false };
+      return {
+        gesture: "OPEN_PALM",
+        rawPointer: { x: indexTip.x, y: indexTip.y, z: indexTip.z },
+        isPinchTriggered: false,
+        proximity: 0,
+        isIndexUpOnly: false,
+      };
     }
 
-    // 3. PINCH DRAW
+    // Calculate Euclidean distance between thumb tip and index tip & index DIP joint
+    const distToTip = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+    const distToDip = Math.hypot(thumbTip.x - indexDip.x, thumbTip.y - indexDip.y);
+    const minPinchDist = Math.min(distToTip, distToDip);
+
+    // Scale-adaptive pinch ratio (relative to palm size)
+    const pinchRatio = minPinchDist / handScale;
+
+    // Responsive Hysteresis threshold
+    // Enter pinch (Hạ bút): Chụm đỉnh ngón cái và ngón trỏ
+    const PINCH_ENTER_RATIO = 0.44;
+    // Exit pinch (Nhấc bút): Xòe ngón cái và ngón trỏ ra
+    const PINCH_EXIT_RATIO = 0.62;
+
+    if (!this.isCurrentlyPinching && (pinchRatio < PINCH_ENTER_RATIO || minPinchDist < 0.085)) {
+      this.isCurrentlyPinching = true;
+    } else if (this.isCurrentlyPinching && (pinchRatio > PINCH_EXIT_RATIO || minPinchDist > 0.13)) {
+      this.isCurrentlyPinching = false;
+    }
+
+    // Proximity metric: 0 (wide open) to 1.0 (fully pinched touching)
+    const proximity = Math.max(0, Math.min(1, (0.65 - pinchRatio) / (0.65 - 0.22)));
+
+    // TÂM CỦA ĐIỂM CHỤM LÀM ĐẦU BÚT KHI HẠ BÚT:
+    // Midpoint between Thumb Tip (landmark 4) and Index Tip (landmark 8)
+    const pinchCenter: Point2D = {
+      x: (thumbTip.x + indexTip.x) / 2,
+      y: (thumbTip.y + indexTip.y) / 2,
+      z: ((thumbTip.z || 0) + (indexTip.z || 0)) / 2,
+    };
+
+    // Smoothly blend pointer towards pinch center as fingers approach
+    const blend = Math.max(0, Math.min(1, proximity));
+    const rawPointer: Point2D = this.isCurrentlyPinching
+      ? pinchCenter
+      : {
+          x: indexTip.x * (1 - blend) + pinchCenter.x * blend,
+          y: indexTip.y * (1 - blend) + pinchCenter.y * blend,
+          z: indexTip.z,
+        };
+
+    // 3. PINCH DRAW (Hạ bút vẽ)
     if (this.isCurrentlyPinching) {
       return { gesture: "PINCH_DRAW", rawPointer, isPinchTriggered: true, proximity, isIndexUpOnly: false };
     }
 
-    // 4. INDEX FINGER UP ONLY (Pointing / Index Air Pen)
+    // 4. INDEX FINGER UP ONLY (Pointing)
     const isIndexUpOnly = isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended;
     if (isIndexUpOnly) {
       return {
@@ -267,7 +346,7 @@ export class AirCanvasEngine {
   }
 
   /**
-   * Main Real-time Processing Loop (Single Hand Mode with Anti-Jitter Smoothing)
+   * Main Real-time Processing Loop with Smart Deferred Recognition & Adaptive Filtering
    */
   public processHands(
     landmarksList: Array<Array<{ x: number; y: number; z?: number }>>,
@@ -285,17 +364,22 @@ export class AirCanvasEngine {
       this.hasSmoothedPointer = false;
       this.isCurrentlyPinching = false;
       this.twoHandsCloseStartTime = 0;
+      this.prevRawPointer = null;
 
-      // Finalize current stroke if any
+      // If a stroke is active, finalize it
       if (this.currentStroke && this.currentStroke.length >= 1) {
         this.strokes.push({
           points: this.smoothPath(this.currentStroke),
           color: this.currentColor,
           width: this.strokeWidth,
         });
-        this.runFastOcr();
         this.currentStroke = null;
+        this.lastPenUpTime = now;
+        this.recognitionState = "WAITING_AUTO_RECOGNIZE";
       }
+
+      // Check auto-recognition timer even when hands leave screen
+      this.handleDeferredRecognition(now);
 
       return {
         isActive: this.state !== "INACTIVE",
@@ -315,6 +399,8 @@ export class AirCanvasEngine {
         arenaContext: this.arenaContext,
         twoHandsCloseProgress: 0,
         twoHandsCloseDetected: false,
+        recognitionState: this.recognitionState,
+        autoRecognizeProgress: this.autoRecognizeProgress,
       };
     }
 
@@ -335,7 +421,6 @@ export class AirCanvasEngine {
 
         const minProximity = Math.min(palmDist, wristDist, (indexTipsDist + thumbsDist) / 2);
 
-        // Check if 2 hands are brought close/touching each other
         if (minProximity < 0.22 || (palmDist < 0.24 && wristDist < 0.28)) {
           twoHandsCloseDetected = true;
           if (this.twoHandsCloseStartTime === 0) {
@@ -359,7 +444,7 @@ export class AirCanvasEngine {
       this.twoHandsCloseStartTime = 0;
     }
 
-    // Find the active drawing hand among all detected hands
+    // Find active drawing hand among detected hands
     let bestClassification = this.classifySingleHand(landmarksList[0]);
 
     if (landmarksList.length > 1) {
@@ -382,7 +467,7 @@ export class AirCanvasEngine {
     this.currentGesture = gesture;
     this.pointerProximity = proximity;
 
-    // Apply Exponential Moving Average (EMA) coordinate smoothing to eliminate camera jitter
+    // DYNAMIC ADAPTIVE ONE-EURO STYLE FILTER FOR ZERO-JITTER SMOOTH DRAWING
     const rawPx = rawPointer.x * width;
     const rawPy = rawPointer.y * height;
     const rawPz = (rawPointer.z || 0) * 100;
@@ -390,15 +475,26 @@ export class AirCanvasEngine {
     if (!this.hasSmoothedPointer) {
       this.smoothedPointer = { x: rawPx, y: rawPy, z: rawPz, time: now };
       this.hasSmoothedPointer = true;
+      this.prevRawPointer = { x: rawPx, y: rawPy, z: rawPz, time: now };
     } else {
-      const dist = Math.hypot(rawPx - this.smoothedPointer.x, rawPy - this.smoothedPointer.y);
-      const alpha = Math.min(0.85, Math.max(0.45, dist / 35));
+      const prev = this.prevRawPointer || { x: rawPx, y: rawPy, z: rawPz, time: now };
+      const dt = Math.max(1, (now - (prev.time || now)) / 1000);
+      const dist = Math.hypot(rawPx - prev.x, rawPy - prev.y);
+      const velocity = dist / dt; // pixels per second
+
+      // Dynamic alpha: High responsiveness on fast strokes, heavy smoothing on slow/subtle motion
+      const alpha = isPinchTriggered
+        ? Math.min(0.85, Math.max(0.40, velocity / 1200))
+        : Math.min(0.90, Math.max(0.45, velocity / 1000));
+
       this.smoothedPointer = {
         x: this.smoothedPointer.x * (1 - alpha) + rawPx * alpha,
         y: this.smoothedPointer.y * (1 - alpha) + rawPy * alpha,
         z: (this.smoothedPointer.z || 0) * (1 - alpha) + rawPz * alpha,
         time: now,
       };
+
+      this.prevRawPointer = { x: rawPx, y: rawPy, z: rawPz, time: now };
     }
 
     // Auto-activate on any drawing intent
@@ -417,7 +513,7 @@ export class AirCanvasEngine {
     }
 
     // =========================================================================
-    // STATE MACHINE (SINGLE HAND OPTIMIZED WITH SMOOTHING)
+    // STATE MACHINE & GESTURES
     // =========================================================================
 
     // 1. ACTIVATION (INDEX_FINGER_UP)
@@ -425,7 +521,7 @@ export class AirCanvasEngine {
       if (this.state === "INACTIVE" && now - this.lastResetTime > 600) {
         this.state = "ACTIVE";
         this.lastActivationTime = now;
-        this.gestureHint = "✨ Bảng 3D đã bật! Chụm ngón cái & trỏ để vẽ nét";
+        this.gestureHint = "✨ Bảng 3D đã bật! Chụm ngón cái & trỏ để hạ bút vẽ";
         soundManager.playHologramOpen();
       }
     }
@@ -436,52 +532,38 @@ export class AirCanvasEngine {
       if (gesture === "OPEN_PALM") {
         if (this.openPalmHoldStartTime === 0) {
           this.openPalmHoldStartTime = now;
-        } else if (now - this.openPalmHoldStartTime > 220 && now - this.lastResetTime > 600) {
+        } else if (now - this.openPalmHoldStartTime > 240 && now - this.lastResetTime > 600) {
           this.clearCanvas(false);
           this.state = "INACTIVE";
           this.lastResetTime = now;
           this.openPalmHoldStartTime = 0;
           justReset = true;
-          this.gestureHint = "🖐️ Đã xòe tay: Xóa bảng & Trả quyền về tính năng đếm ngón";
+          this.gestureHint = "🖐️ Đã xòe tay: Xóa bảng vẽ";
         }
       } else {
         this.openPalmHoldStartTime = 0;
       }
 
-      // (b) SUBMIT & CALCULATE (FIST)
+      // (b) IMMEDIATE SUBMIT & CALCULATE (FIST)
       if (gesture === "FIST") {
         if (this.fistHoldStartTime === 0) {
           this.fistHoldStartTime = now;
         } else if (
-          now - this.fistHoldStartTime > 180 &&
+          now - this.fistHoldStartTime > 160 &&
           now - this.lastCalculateTime > 650 &&
           (this.strokes.length > 0 || this.currentStroke)
         ) {
-          // Finalize active stroke if any
-          if (this.currentStroke && this.currentStroke.length >= 1) {
-            this.strokes.push({
-              points: this.smoothPath(this.currentStroke),
-              color: this.currentColor,
-              width: this.strokeWidth,
-            });
-            this.currentStroke = null;
-          }
-
-          // Execute Fast Vector Math Recognizer (< 0.1ms)
-          this.runFastOcr();
-          this.state = "CALCULATED";
+          this.triggerManualRecognition();
           this.lastCalculateTime = now;
           this.fistHoldStartTime = 0;
           justCalculated = true;
-
-          soundManager.playSubmitSuccess();
-          this.gestureHint = "✊ Nắm tay: Đã tính toán biểu thức & xuất kết quả 3D!";
+          this.gestureHint = "✊ Nắm tay: Đã nhận diện kết quả!";
         }
       } else {
         this.fistHoldStartTime = 0;
       }
 
-      // (c) DRAWING DISPATCHER WITH GRACE BUFFER
+      // (c) DRAWING DISPATCHER WITH PINCH-DOWN & PEN-UP
       if (this.state === "ACTIVE") {
         const pt: Point2D = {
           x: this.smoothedPointer.x,
@@ -491,39 +573,60 @@ export class AirCanvasEngine {
         };
 
         if (isDrawingNow) {
+          // --- TRẠNG THÁI HẠ BÚT (VẼ) ---
           this.lastDrawReleaseTime = 0;
+          this.lastPenUpTime = 0;
+          this.autoRecognizeProgress = 0;
+          this.recognitionState = "DRAWING";
+
           if (!this.currentStroke) {
             this.currentStroke = [pt];
             soundManager.playPenTouch();
           } else {
             const last = this.currentStroke[this.currentStroke.length - 1];
             const dist = Math.hypot(pt.x - last.x, pt.y - last.y);
-            // Record smooth points with minimal displacement threshold
-            if (dist > 2.0) {
+            // Record smooth points with minimal displacement
+            if (dist > 1.8) {
+              // Interpolate intermediate sub-points if moving fast to prevent angular corners
+              if (dist > 12.0) {
+                const steps = Math.min(4, Math.floor(dist / 8));
+                for (let k = 1; k < steps; k++) {
+                  const frac = k / steps;
+                  this.currentStroke.push({
+                    x: last.x + frac * (pt.x - last.x),
+                    y: last.y + frac * (pt.y - last.y),
+                    time: now - (steps - k) * 3,
+                  });
+                }
+              }
               this.currentStroke.push(pt);
               this.spawnPinchParticles(pt.x, pt.y);
             }
           }
-          this.gestureHint = "✍️ Đang vẽ mượt mà... Nắm tay ✊ để tính kết quả";
+          this.gestureHint = "✍️ Đang hạ bút vẽ nét... Xòe tay ra để nhấc bút";
         } else {
-          // Not drawing right now: check if within grace window
+          // --- TRẠNG THÁI NHẤC BÚT (DI CHUYỂN) ---
           if (this.currentStroke) {
             if (this.lastDrawReleaseTime === 0) {
               this.lastDrawReleaseTime = now;
             } else if (now - this.lastDrawReleaseTime > this.DRAW_GRACE_PERIOD_MS) {
-              // Grace period expired -> smoothly finalize stroke
+              // Grace period expired -> Finalize this stroke smoothly
               if (this.currentStroke.length >= 1) {
                 this.strokes.push({
                   points: this.smoothPath(this.currentStroke),
                   color: this.currentColor,
                   width: this.strokeWidth,
                 });
-                this.runFastOcr();
               }
               this.currentStroke = null;
               this.lastDrawReleaseTime = 0;
+              this.lastPenUpTime = now;
+              this.recognitionState = "WAITING_AUTO_RECOGNIZE";
             }
           }
+
+          // Smart Deferred Recognition evaluation
+          this.handleDeferredRecognition(now);
         }
       }
     }
@@ -549,11 +652,49 @@ export class AirCanvasEngine {
       arenaContext: this.arenaContext,
       twoHandsCloseProgress,
       twoHandsCloseDetected,
+      recognitionState: this.recognitionState,
+      autoRecognizeProgress: this.autoRecognizeProgress,
     };
   }
 
   /**
-   * Chaikin's Algorithm / Corner smoothing to produce perfectly round lines
+   * Smart Deferred Recognition: Runs OCR ONLY when user finishes drawing (idle after pen up)
+   */
+  private handleDeferredRecognition(now: number) {
+    if (
+      this.recognitionState === "WAITING_AUTO_RECOGNIZE" &&
+      this.strokes.length > 0 &&
+      this.lastPenUpTime > 0
+    ) {
+      const elapsed = now - this.lastPenUpTime;
+      const progress = Math.min(100, Math.round((elapsed / this.AUTO_RECOGNIZE_DELAY_MS) * 100));
+      this.autoRecognizeProgress = progress;
+
+      if (elapsed >= this.AUTO_RECOGNIZE_DELAY_MS) {
+        // User finished drawing all strokes -> Run high-speed vector recognition!
+        this.runFastOcr();
+        this.recognitionState = "RECOGNIZED";
+        this.lastPenUpTime = 0;
+        this.autoRecognizeProgress = 100;
+        this.state = "CALCULATED";
+
+        soundManager.playSubmitSuccess();
+        this.spawnRecognitionParticles();
+
+        if (this.fastOcr && this.fastOcr.calculatedValue !== null) {
+          this.gestureHint = `🎯 Đã nhận diện: ${this.fastOcr.formulaDisplay}`;
+        } else {
+          this.gestureHint = "🎯 Đã nhận diện nét vẽ!";
+        }
+      } else {
+        const remainingSec = ((this.AUTO_RECOGNIZE_DELAY_MS - elapsed) / 1000).toFixed(1);
+        this.gestureHint = `⏳ Đã nhấc bút • Tự động nhận diện sau ${remainingSec}s hoặc Nắm tay ✊`;
+      }
+    }
+  }
+
+  /**
+   * Chaikin's Algorithm + Corner smoothing to produce velvety round lines
    */
   private smoothPath(points: Point2D[]): Point2D[] {
     if (points.length < 3) return points;
@@ -581,25 +722,46 @@ export class AirCanvasEngine {
 
   private runFastOcr() {
     const rawStrokes = this.strokes.map((s) => ({
-      points: s.points.map((p) => ({ x: p.x / this.canvasWidth, y: p.y / this.canvasHeight })),
+      points: s.points.map((p) => ({ x: p.x, y: p.y })),
     }));
     this.fastOcr = fastRecognizeStrokes(rawStrokes);
   }
 
   private spawnPinchParticles(x: number, y: number) {
-    if (this.particles.length > 35) return;
+    if (this.particles.length > 40) return;
     this.particles.push({
       x,
       y,
       z: 0,
-      vx: (Math.random() - 0.5) * 2.5,
-      vy: (Math.random() - 0.5) * 2.5,
+      vx: (Math.random() - 0.5) * 2.2,
+      vy: (Math.random() - 0.5) * 2.2,
       color: this.currentColor,
-      size: Math.random() * 3 + 2,
+      size: Math.random() * 3 + 1.8,
       alpha: 1.0,
       life: 0,
-      maxLife: 15,
+      maxLife: 14,
     });
+  }
+
+  private spawnRecognitionParticles() {
+    const centerX = this.canvasWidth / 2;
+    const centerY = this.canvasHeight / 2;
+    for (let i = 0; i < 28; i++) {
+      const angle = (i / 28) * Math.PI * 2;
+      const speed = Math.random() * 5 + 3;
+      this.particles.push({
+        x: centerX,
+        y: centerY,
+        z: 0,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        color: this.currentColor,
+        size: Math.random() * 3.5 + 2,
+        alpha: 1.0,
+        life: 0,
+        maxLife: 22,
+      });
+    }
   }
 
   private spawnResetParticles() {
@@ -667,12 +829,12 @@ export class AirCanvasEngine {
     ctx.globalAlpha = 1.0;
     ctx.shadowBlur = 0;
 
-    // 5. Render Interactive Air-Pen Cursor Reticle (Visual Proximity Guidance)
+    // 5. Render Interactive Air-Pen Cursor Reticle (Visual Pinch Guidance)
     if (this.hasSmoothedPointer) {
       this.renderAirPenReticle(ctx, this.smoothedPointer.x, this.smoothedPointer.y);
     }
 
-    // 6. Render 3D HUD (Arena/Fast Math Result)
+    // 6. Render 3D HUD (Arena/Fast Math Result & Countdown)
     this.render3DHud(ctx, width, height);
 
     ctx.restore();
@@ -683,36 +845,47 @@ export class AirCanvasEngine {
     const isDrawing = this.currentStroke !== null || this.isCurrentlyPinching;
 
     if (isDrawing) {
-      // Glowing Laser Tip when drawing
+      // --- HẠ BÚT (PINCH DOWN): TÂM CHỤM LÀM ĐẦU BÚT PHÁT QUANG RỰC RỠ ---
+      // Glowing Laser Tip
       ctx.beginPath();
       ctx.arc(px, py, 7, 0, Math.PI * 2);
       ctx.fillStyle = "#FFFFFF";
       ctx.shadowColor = this.currentColor;
-      ctx.shadowBlur = 16;
+      ctx.shadowBlur = 18;
       ctx.fill();
 
       // Outer vibrant ripple ring
       ctx.beginPath();
-      ctx.arc(px, py, 16, 0, Math.PI * 2);
+      ctx.arc(px, py, 15, 0, Math.PI * 2);
       ctx.strokeStyle = this.currentColor;
       ctx.lineWidth = 3;
       ctx.shadowBlur = 12;
       ctx.stroke();
+
+      // Mini Pen Tip Tag (flipped so readable)
+      ctx.save();
+      ctx.translate(px, py - 18);
+      ctx.scale(-1, 1);
+      ctx.font = "bold 9px system-ui, sans-serif";
+      ctx.fillStyle = "#FDE047";
+      ctx.textAlign = "center";
+      ctx.fillText("✍️ ĐẦU BÚT (HẠ BÚT)", 0, 0);
+      ctx.restore();
     } else {
-      // Proximity Magnetic Targeting Ring (Shrinks as fingers get closer)
-      const ringRadius = 9 + (1 - this.pointerProximity) * 16;
+      // --- NHẤC BÚT (PEN UP / HOVER): VÒNG NGẮM TÂM CHỤM ---
+      const ringRadius = 8 + (1 - this.pointerProximity) * 14;
       ctx.beginPath();
       ctx.arc(px, py, ringRadius, 0, Math.PI * 2);
       ctx.strokeStyle = this.pointerProximity > 0.6 ? "#FDE047" : "rgba(56, 189, 248, 0.85)";
       ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
+      ctx.setLineDash([3, 3]);
       ctx.shadowColor = "#38BDF8";
       ctx.shadowBlur = 8;
       ctx.stroke();
 
       // Center crosshair dot
       ctx.beginPath();
-      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = this.pointerProximity > 0.6 ? "#FDE047" : "#38BDF8";
       ctx.fill();
     }
@@ -721,14 +894,14 @@ export class AirCanvasEngine {
   }
 
   private renderHolographicFrame(ctx: CanvasRenderingContext2D, width: number, height: number) {
-    const pad = 12;
-    const cornerSize = 24;
+    const pad = 10;
+    const cornerSize = 20;
 
     ctx.save();
     ctx.strokeStyle = "#06B6D4";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.8;
     ctx.shadowColor = "#38BDF8";
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 10;
 
     // 4 Glowing corner brackets
     ctx.beginPath();
@@ -755,15 +928,17 @@ export class AirCanvasEngine {
     ctx.lineTo(width - pad, height - pad - cornerSize);
     ctx.stroke();
 
-    // Mode indicator tag at top (flipped horizontally so readable on mirrored canvas)
+    // Mode & Status Indicator at Top
     ctx.save();
     ctx.translate(width / 2, pad + 14);
     ctx.scale(-1, 1);
-    ctx.font = "bold 11px system-ui, sans-serif";
-    ctx.fillStyle = "#38BDF8";
+    ctx.font = "bold 10px system-ui, sans-serif";
+    ctx.fillStyle = this.isCurrentlyPinching ? "#FDE047" : "#38BDF8";
     ctx.textAlign = "center";
-    const modeStr = this.drawMode === "PINCH" ? "CHỤM NGÓN VẼ (PINCH)" : "BÚT TRỎ TỰ DO (AIR-PEN)";
-    ctx.fillText(`✦ 3D AIR-CANVAS • ${modeStr} ✦`, 0, 0);
+    const statusText = this.isCurrentlyPinching
+      ? "✍️ ĐANG HẠ BÚT VẼ (CHỤM NGÓN)"
+      : "🖐️ NHẤC BÚT (XÒE NGÓN DI CHUYỂN)";
+    ctx.fillText(`✦ BẢNG VẼ AIR-CANVAS • ${statusText} ✦`, 0, 0);
     ctx.restore();
 
     ctx.restore();
@@ -814,7 +989,7 @@ export class AirCanvasEngine {
     ctx.strokeStyle = color;
     ctx.lineWidth = width + 6;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 18;
     ctx.globalAlpha = 0.65;
     ctx.stroke();
 
@@ -830,7 +1005,7 @@ export class AirCanvasEngine {
 
     ctx.strokeStyle = "#FFFFFF";
     ctx.lineWidth = Math.max(3, width - 1);
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 5;
     ctx.globalAlpha = 1.0;
     ctx.stroke();
 
@@ -840,10 +1015,10 @@ export class AirCanvasEngine {
   private render3DHud(ctx: CanvasRenderingContext2D, width: number, height: number) {
     ctx.save();
 
-    const badgeW = 300;
-    const badgeH = 58;
+    const badgeW = 290;
+    const badgeH = 54;
     const badgeX = (width - badgeW) / 2;
-    const badgeY = height - 76;
+    const badgeY = height - 70;
 
     let isCorrect = false;
     if (this.arenaContext && this.fastOcr && this.fastOcr.calculatedValue !== null) {
@@ -851,18 +1026,33 @@ export class AirCanvasEngine {
     }
 
     ctx.beginPath();
-    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 16);
+    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 14);
     ctx.fillStyle = isCorrect
       ? "rgba(6, 78, 59, 0.94)"
-      : this.state === "CALCULATED"
+      : this.recognitionState === "WAITING_AUTO_RECOGNIZE"
       ? "rgba(30, 27, 75, 0.92)"
       : "rgba(15, 23, 42, 0.90)";
-    ctx.strokeStyle = isCorrect ? "#10B981" : this.state === "CALCULATED" ? "#818CF8" : "#06B6D4";
+    ctx.strokeStyle = isCorrect
+      ? "#10B981"
+      : this.recognitionState === "WAITING_AUTO_RECOGNIZE"
+      ? "#F59E0B"
+      : "#06B6D4";
     ctx.lineWidth = 2;
     ctx.shadowColor = isCorrect ? "#10B981" : "#06B6D4";
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 12;
     ctx.fill();
     ctx.stroke();
+
+    // Auto-Recognition progress bar at bottom of HUD
+    if (this.recognitionState === "WAITING_AUTO_RECOGNIZE" && this.autoRecognizeProgress > 0) {
+      const barW = (badgeW - 20) * (this.autoRecognizeProgress / 100);
+      ctx.beginPath();
+      ctx.roundRect(badgeX + 10, badgeY + badgeH - 5, barW, 3, 2);
+      ctx.fillStyle = "#F59E0B";
+      ctx.shadowColor = "#F59E0B";
+      ctx.shadowBlur = 6;
+      ctx.fill();
+    }
 
     // Flip horizontally so HUD text is readable on mirrored canvas
     ctx.save();
@@ -878,23 +1068,31 @@ export class AirCanvasEngine {
       ctx.fillText(
         isCorrect ? "🎉 ĐÁP ÁN CHÍNH XÁC!" : `🧮 ĐẤU TRƯỜNG: ${this.arenaContext.question}`,
         0,
-        16
+        15
       );
     } else {
-      ctx.fillText("🧮 3D VECTOR MATH ENGINE", 0, 16);
+      ctx.fillText("🧮 3D VECTOR MATH ENGINE", 0, 15);
     }
 
     ctx.fillStyle = "#FFFFFF";
-    ctx.font = "black 17px monospace";
+    ctx.font = "bold 15px monospace";
 
     if (isCorrect && this.arenaContext) {
-      ctx.fillText(`KẾT QUẢ = ${this.arenaContext.correctAnswer} (+100đ)`, 0, 42);
+      ctx.fillText(`KẾT QUẢ = ${this.arenaContext.correctAnswer} (+100đ)`, 0, 38);
+    } else if (this.recognitionState === "WAITING_AUTO_RECOGNIZE") {
+      ctx.font = "bold 11px system-ui, sans-serif";
+      ctx.fillStyle = "#FDE047";
+      ctx.fillText("⏳ Đang chờ nét tiếp theo...", 0, 38);
+    } else if (this.recognitionState === "DRAWING") {
+      ctx.font = "bold 11px system-ui, sans-serif";
+      ctx.fillStyle = "#38BDF8";
+      ctx.fillText("✍️ Đang hạ bút vẽ nét...", 0, 38);
     } else if (this.fastOcr && this.fastOcr.formulaDisplay) {
-      ctx.fillText(this.fastOcr.formulaDisplay, 0, 42);
+      ctx.fillText(this.fastOcr.formulaDisplay, 0, 38);
     } else {
       ctx.font = "bold 11px system-ui, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.fillText("Vẽ số mượt mà • Nắm tay ✊ tính kết quả", 0, 42);
+      ctx.fillText("Chụm ngón để vẽ • Xòe tay nhấc bút", 0, 38);
     }
 
     ctx.restore();
