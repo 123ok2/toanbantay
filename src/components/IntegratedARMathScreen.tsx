@@ -32,210 +32,15 @@ import { classifyMultipleHands, analyzeSingleHandFingers } from "../utils/gestur
 import { GESTURE_DICTIONARY } from "../utils/gestureDictionary";
 import { RecognitionResult } from "../types";
 import { soundManager } from "../utils/soundEffects";
-
-interface MathQuestion {
-  id: string;
-  problemStr: string;
-  correctAnswer: number;
-  emojiAnalogy: string;
-  explanation: string;
-  gradeLevel: "Lớp 1 - 2" | "Lớp 3 - 5" | "Lớp 6 (THCS)" | "Lớp 7 (THCS)" | "Lớp 8 - 9 (THCS)";
-}
-
-// Preset Math Question Bank for Finger-Counting Game (0 to 10 answers)
-const MATH_QUESTION_BANK: MathQuestion[] = [
-  // --- TIỂU HỌC (LỚP 1 - 2 & 3 - 5) ---
-  {
-    id: "q1",
-    problemStr: "2 + 3 = ?",
-    correctAnswer: 5,
-    emojiAnalogy: "🍎🍎 + 🍎🍎🍎 = 🍎🍎🍎🍎🍎",
-    explanation: "2 quả táo cộng thêm 3 quả táo bằng 5 quả táo!",
-    gradeLevel: "Lớp 1 - 2",
-  },
-  {
-    id: "q2",
-    problemStr: "4 + 3 = ?",
-    correctAnswer: 7,
-    emojiAnalogy: "⭐ ⭐ ⭐ ⭐ + ⭐ ⭐ ⭐ = 7 ⭐",
-    explanation: "4 ngôi sao thêm 3 ngôi sao là 7 ngôi sao!",
-    gradeLevel: "Lớp 1 - 2",
-  },
-  {
-    id: "q3",
-    problemStr: "8 - 2 = ?",
-    correctAnswer: 6,
-    emojiAnalogy: "🎈🎈🎈🎈🎈🎈🎈🎈 bớt đi 2 🎈🎈 = 6 🎈",
-    explanation: "8 bóng bay bớt đi 2 bóng bay còn lại 6 bóng bay!",
-    gradeLevel: "Lớp 1 - 2",
-  },
-  {
-    id: "q4",
-    problemStr: "5 + 5 = ?",
-    correctAnswer: 10,
-    emojiAnalogy: "✋ (5 ngón) + ✋ (5 ngón) = 🔟 (10 ngón)",
-    explanation: "Xòe rộng 2 bàn tay mỗi bên 5 ngón thành 10 ngón tay!",
-    gradeLevel: "Lớp 1 - 2",
-  },
-  {
-    id: "q5",
-    problemStr: "2 x 4 = ?",
-    correctAnswer: 8,
-    emojiAnalogy: "2 x 4 = 4 + 4 = 8 🍪",
-    explanation: "2 nhóm, mỗi nhóm có 4 chiếc bánh là 8 chiếc bánh!",
-    gradeLevel: "Lớp 1 - 2",
-  },
-  {
-    id: "q6",
-    problemStr: "3 x 3 = ?",
-    correctAnswer: 9,
-    emojiAnalogy: "3 x 3 = 3 + 3 + 3 = 9 🚀",
-    explanation: "3 lần số 3 bằng 9!",
-    gradeLevel: "Lớp 1 - 2",
-  },
-  {
-    id: "q_elem_1",
-    problemStr: "36 : 4 = ?",
-    correctAnswer: 9,
-    emojiAnalogy: "36 chiếc kẹo chia đều cho 4 bạn = 9 chiếc 🍬",
-    explanation: "Phép chia: 36 chia cho 4 bằng 9!",
-    gradeLevel: "Lớp 3 - 5",
-  },
-  {
-    id: "q_elem_2",
-    problemStr: "56 : 8 = ?",
-    correctAnswer: 7,
-    emojiAnalogy: "7 x 8 = 56 ➡️ 56 : 8 = 7 🎯",
-    explanation: "56 chia 8 bằng 7 vì 7 nhân 8 bằng 56!",
-    gradeLevel: "Lớp 3 - 5",
-  },
-  {
-    id: "q_elem_3",
-    problemStr: "1/2 của 16 = ?",
-    correctAnswer: 8,
-    emojiAnalogy: "16 quả cam chia đôi = 8 quả 🍊",
-    explanation: "Một nửa (1/2) của 16 là 16 : 2 = 8!",
-    gradeLevel: "Lớp 3 - 5",
-  },
-
-  // --- TRUNG HỌC CƠ SỞ (LỚP 6: TẬP HỢP, SỐ NGUYÊN, TÌM X, LŨY THỪA, ƯCLN - BCNN) ---
-  {
-    id: "q_thcs_6_1",
-    problemStr: "Tìm x: 2x - 4 = 6",
-    correctAnswer: 5,
-    emojiAnalogy: "2x = 6 + 4 = 10 ➡️ x = 10 : 2 = 5 💡",
-    explanation: "Chuyển vế: 2x = 6 + 4 = 10. Do đó x = 10 : 2 = 5!",
-    gradeLevel: "Lớp 6 (THCS)",
-  },
-  {
-    id: "q_thcs_6_2",
-    problemStr: "Tính số nguyên: 10 + (-3) = ?",
-    correctAnswer: 7,
-    emojiAnalogy: "Cộng số nguyên khác dấu: 10 - 3 = 7 ⚖️",
-    explanation: "Cộng hai số nguyên khác dấu: lấy số lớn trừ số bé, mang dấu dương = 7.",
-    gradeLevel: "Lớp 6 (THCS)",
-  },
-  {
-    id: "q_thcs_6_3",
-    problemStr: "Lũy thừa: 2³ = ?",
-    correctAnswer: 8,
-    emojiAnalogy: "2³ = 2 x 2 x 2 = 8 ⚡",
-    explanation: "2 mũ 3 là tích của 3 thừa số 2: 2 x 2 x 2 = 8!",
-    gradeLevel: "Lớp 6 (THCS)",
-  },
-  {
-    id: "q_thcs_6_4",
-    problemStr: "ƯCLN(12, 16) = ?",
-    correctAnswer: 4,
-    emojiAnalogy: "Ư(12) ∩ Ư(16) lớn nhất là 4 🧩",
-    explanation: "12 = 2² x 3; 16 = 2⁴. Ước chung lớn nhất là 2² = 4!",
-    gradeLevel: "Lớp 6 (THCS)",
-  },
-  {
-    id: "q_thcs_6_5",
-    problemStr: "BCNN(2, 3) = ?",
-    correctAnswer: 6,
-    emojiAnalogy: "Bội chung nhỏ nhất của 2 và 3 là 6 🔄",
-    explanation: "Vì 2 và 3 là hai số nguyên tố cùng nhau, BCNN(2, 3) = 2 x 3 = 6!",
-    gradeLevel: "Lớp 6 (THCS)",
-  },
-  {
-    id: "q_thcs_6_6",
-    problemStr: "Tính: 3² - 2⁰ = ?",
-    correctAnswer: 8,
-    emojiAnalogy: "3² = 9, 2⁰ = 1 ➡️ 9 - 1 = 8 🔢",
-    explanation: "3 mũ 2 bằng 9, 2 mũ 0 bằng 1. Kết quả là 9 - 1 = 8!",
-    gradeLevel: "Lớp 6 (THCS)",
-  },
-
-  // --- TRUNG HỌC CƠ SỞ (LỚP 7: SỐ HỮU TỈ, TỈ LỆ THỨC, CĂN BẬC HAI) ---
-  {
-    id: "q_thcs_7_1",
-    problemStr: "Căn bậc hai: √49 = ?",
-    correctAnswer: 7,
-    emojiAnalogy: "7² = 49 ➡️ √49 = 7 📐",
-    explanation: "Căn bậc hai số học của 49 là 7 vì 7 > 0 và 7² = 49!",
-    gradeLevel: "Lớp 7 (THCS)",
-  },
-  {
-    id: "q_thcs_7_2",
-    problemStr: "Căn bậc hai: √81 = ?",
-    correctAnswer: 9,
-    emojiAnalogy: "9 x 9 = 81 ➡️ √81 = 9 🎯",
-    explanation: "Căn bậc hai số học của 81 là 9 vì 9² = 81!",
-    gradeLevel: "Lớp 7 (THCS)",
-  },
-  {
-    id: "q_thcs_7_3",
-    problemStr: "Tìm x: x/2 = 6/4",
-    correctAnswer: 3,
-    emojiAnalogy: "Tỉ lệ thức: 4x = 12 ➡️ x = 3 ⚖️",
-    explanation: "Áp dụng tính chất tỉ lệ thức: x = (2 x 6) : 4 = 12 : 4 = 3!",
-    gradeLevel: "Lớp 7 (THCS)",
-  },
-  {
-    id: "q_thcs_7_4",
-    problemStr: "Giá trị tuyệt đối: |-6| = ?",
-    correctAnswer: 6,
-    emojiAnalogy: "|-6| = 6 (Khoảng cách đến số 0) 📏",
-    explanation: "Giá trị tuyệt đối của số âm -6 là số đối của nó: 6!",
-    gradeLevel: "Lớp 7 (THCS)",
-  },
-
-  // --- TRUNG HỌC CƠ SỞ (LỚP 8 - 9: HẰNG ĐẲNG THỨC, HỆ PHƯƠNG TRÌNH, HÌNH HỌC) ---
-  {
-    id: "q_thcs_8_1",
-    problemStr: "Cạnh huyền tam giác vuông (3, 4) = ?",
-    correctAnswer: 5,
-    emojiAnalogy: "Định lý Pythagore: √(3² + 4²) = √25 = 5 📐",
-    explanation: "Theo định lý Pythagore: √(9 + 16) = √25 = 5!",
-    gradeLevel: "Lớp 8 - 9 (THCS)",
-  },
-  {
-    id: "q_thcs_8_2",
-    problemStr: "Căn bậc hai: √100 = ?",
-    correctAnswer: 10,
-    emojiAnalogy: "10² = 100 ➡️ √100 = 10 💯",
-    explanation: "Căn bậc hai của 100 bằng 10!",
-    gradeLevel: "Lớp 8 - 9 (THCS)",
-  },
-  {
-    id: "q_thcs_8_3",
-    problemStr: "Tìm x: x² = 16 (x > 0)",
-    correctAnswer: 4,
-    emojiAnalogy: "4² = 16 ➡️ x = 4 🔑",
-    explanation: "Vì x > 0 và x² = 16 nên x = √16 = 4!",
-    gradeLevel: "Lớp 8 - 9 (THCS)",
-  },
-  {
-    id: "q_thcs_8_4",
-    problemStr: "Tính: (√5)² + 2 = ?",
-    correctAnswer: 7,
-    emojiAnalogy: "(√5)² = 5 ➡️ 5 + 2 = 7 🌟",
-    explanation: "Bình phương của căn bậc hai √5 là 5; 5 + 2 = 7!",
-    gradeLevel: "Lớp 8 - 9 (THCS)",
-  },
-];
+import {
+  MathQuestion,
+  MathGradeLevel,
+  MASTER_MATH_QUESTION_BANK,
+  GRADE_LEVEL_OPTIONS,
+  getShuffledQuestionsForGrade,
+  getRandomQuestionForGrade,
+  generateDynamicQuestion,
+} from "../utils/mathQuestionBank";
 
 interface IntegratedARMathScreenProps {
   isStreaming: boolean;
@@ -269,6 +74,9 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
 
   // Math State
   const [selectedGrade, setSelectedGrade] = useState<string>("Tất cả");
+  const [questionPool, setQuestionPool] = useState<MathQuestion[]>(() => {
+    return getShuffledQuestionsForGrade("Lớp 1 - 2");
+  });
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
   const [score, setScore] = useState<number>(0);
   const [streak, setStreak] = useState<number>(0);
@@ -289,13 +97,20 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
   const REQUIRED_HOLD_TIME_MS = 950; // 950ms stable pose hold required before validating answer
   const MOTION_THRESHOLD = 0.035; // Normalized displacement threshold for hand movement detection
 
-  // Filter questions based on grade
-  const filteredQuestions =
-    selectedGrade === "Tất cả"
-      ? MATH_QUESTION_BANK
-      : MATH_QUESTION_BANK.filter((q) => q.gradeLevel === selectedGrade);
+  // Re-shuffle when grade changes
+  useEffect(() => {
+    let initialList: MathQuestion[] = [];
+    if (selectedGrade === "Tất cả") {
+      initialList = [...MASTER_MATH_QUESTION_BANK].sort(() => Math.random() - 0.5);
+    } else {
+      initialList = getShuffledQuestionsForGrade(selectedGrade as MathGradeLevel);
+    }
+    setQuestionPool(initialList);
+    setCurrentQuestionIndex(0);
+    setFeedbackState("idle");
+  }, [selectedGrade]);
 
-  const currentQ = filteredQuestions[currentQuestionIndex % filteredQuestions.length] || MATH_QUESTION_BANK[0];
+  const currentQ = questionPool[currentQuestionIndex % questionPool.length] || MASTER_MATH_QUESTION_BANK[0];
 
   // Initialize MediaPipe
   useEffect(() => {
@@ -408,12 +223,40 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
     }
   };
 
-  // Switch to next math question
+  // Switch to next math question in pool
   const handleNextQuestion = useCallback(() => {
     soundManager.playClick();
     setFeedbackState("idle");
-    setCurrentQuestionIndex((prev) => (prev + 1) % filteredQuestions.length);
-  }, [filteredQuestions.length]);
+    setCurrentQuestionIndex((prev) => (prev + 1) % questionPool.length);
+  }, [questionPool.length]);
+
+  // Jump to a random question in the current pool
+  const handleRandomQuestion = useCallback(() => {
+    soundManager.playClick();
+    setFeedbackState("idle");
+    if (questionPool.length <= 1) return;
+    let nextIdx = Math.floor(Math.random() * questionPool.length);
+    if (nextIdx === currentQuestionIndex) {
+      nextIdx = (nextIdx + 1) % questionPool.length;
+    }
+    setCurrentQuestionIndex(nextIdx);
+  }, [currentQuestionIndex, questionPool.length]);
+
+  // Dynamically generate a brand new mathematical question on the fly
+  const handleGenerateDynamic = useCallback(() => {
+    soundManager.playClick();
+    setFeedbackState("idle");
+    const targetGrade =
+      selectedGrade === "Tất cả"
+        ? (["Lớp 1 - 2", "Lớp 3 - 5", "Lớp 6 (THCS)", "Lớp 7 (THCS)", "Lớp 8 - 9 (THCS)"][
+            Math.floor(Math.random() * 5)
+          ] as MathGradeLevel)
+        : (selectedGrade as MathGradeLevel);
+
+    const newQ = generateDynamicQuestion(targetGrade);
+    setQuestionPool((prev) => [newQ, ...prev]);
+    setCurrentQuestionIndex(0);
+  }, [selectedGrade]);
 
   // Answer validation trigger
   const handleValidateAnswer = useCallback((answerNumber: number) => {
@@ -439,10 +282,10 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
       // Play audio & voice explanation
       soundManager.playCorrectFeedback(currentQ.correctAnswer, streak + 1);
 
-      // Automatically advance to next question
+      // Automatically advance to next random/sequential question in pool
       setTimeout(() => {
         setFeedbackState("idle");
-        setCurrentQuestionIndex((prev) => (prev + 1) % filteredQuestions.length);
+        setCurrentQuestionIndex((prev) => (prev + 1) % questionPool.length);
       }, 1600);
     } else {
       setFeedbackState("incorrect");
@@ -451,7 +294,7 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
         setFeedbackState("idle");
       }, 1200);
     }
-  }, [currentQ.correctAnswer, filteredQuestions.length, lastAnswerTime, streak]);
+  }, [currentQ.correctAnswer, questionPool.length, lastAnswerTime, streak]);
 
   // Video processing and hand landmark detection loop
   const processVideoFrame = useCallback(() => {
@@ -718,14 +561,16 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
                   setSelectedGrade(e.target.value);
                   setCurrentQuestionIndex(0);
                 }}
-                className="bg-white/10 text-amber-300 text-[10px] sm:text-xs font-bold border border-white/10 rounded-lg px-2 py-1 outline-none cursor-pointer"
+                className="bg-slate-900/80 text-amber-300 text-[10px] sm:text-xs font-bold border border-amber-400/30 rounded-lg px-2 py-1 outline-none cursor-pointer hover:border-amber-400"
               >
-                <option value="Tất cả" className="bg-slate-900 text-white">Tất cả khối lớp</option>
-                <option value="Lớp 1 - 2" className="bg-slate-900 text-white">Lớp 1 - 2</option>
-                <option value="Lớp 3 - 5" className="bg-slate-900 text-white">Lớp 3 - 5</option>
-                <option value="Lớp 6 (THCS)" className="bg-slate-900 text-white">Lớp 6 (THCS)</option>
-                <option value="Lớp 7 (THCS)" className="bg-slate-900 text-white">Lớp 7 (THCS)</option>
-                <option value="Lớp 8 - 9 (THCS)" className="bg-slate-900 text-white">Lớp 8 - 9 (THCS)</option>
+                <option value="Tất cả" className="bg-slate-900 text-white">
+                  🌐 Tất cả khối lớp ({MASTER_MATH_QUESTION_BANK.length} câu)
+                </option>
+                {GRADE_LEVEL_OPTIONS.map((g) => (
+                  <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+                    {g.icon} {g.label}
+                  </option>
+                ))}
               </select>
             )}
           </div>
@@ -766,27 +611,69 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
 
         {/* MATH PROBLEM BOARD (When in Math Mode) */}
         {activeMode === "math" ? (
-          <div className="bg-gradient-to-r from-indigo-900/60 via-purple-900/60 to-slate-900/60 border border-indigo-400/30 rounded-xl p-2 sm:p-3 flex items-center justify-between flex-wrap gap-2 shadow-inner">
-            <div className="flex items-center gap-3">
-              <span className="text-[11px] font-bold text-indigo-300 bg-white/10 px-2 py-0.5 rounded-full border border-white/10">
-                Câu {currentQuestionIndex + 1}/{filteredQuestions.length}
+          <div className="bg-gradient-to-r from-indigo-900/70 via-purple-900/70 to-slate-900/80 border border-indigo-400/30 rounded-xl p-2 sm:p-3 flex items-center justify-between flex-wrap gap-2 shadow-inner">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <span className="text-[10px] sm:text-[11px] font-bold text-indigo-300 bg-white/10 px-2 py-0.5 rounded-full border border-white/10">
+                Câu {currentQuestionIndex + 1}/{questionPool.length}
               </span>
-              <div className="text-2xl sm:text-4xl font-black text-white tracking-widest font-mono drop-shadow-md">
+
+              {/* Topic & Difficulty Badges */}
+              {currentQ.topic && (
+                <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-400/30">
+                  {currentQ.topic}
+                </span>
+              )}
+
+              {currentQ.difficulty && (
+                <span
+                  className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                    currentQ.difficulty === "Dễ"
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                      : currentQ.difficulty === "Trung bình"
+                      ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                      : "bg-purple-500/20 text-purple-300 border-purple-500/30"
+                  }`}
+                >
+                  {currentQ.difficulty}
+                </span>
+              )}
+
+              <div className="text-2xl sm:text-4xl font-black text-white tracking-wider font-mono drop-shadow-md">
                 {currentQ.problemStr}
               </div>
+
               <div className="hidden sm:block text-xs font-bold text-amber-300 bg-black/30 px-2.5 py-1 rounded-lg border border-amber-400/20">
                 {currentQ.emojiAnalogy}
               </div>
             </div>
 
-            {/* Next question button */}
-            <button
-              onClick={handleNextQuestion}
-              className="text-xs font-bold text-indigo-200 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-xl border border-white/10 cursor-pointer transition-all active:scale-95 ml-auto"
-            >
-              <span>Đổi câu</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            {/* Action buttons: Random, Dynamic, Next */}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                onClick={handleRandomQuestion}
+                className="text-[10px] sm:text-xs font-bold text-amber-200 hover:text-amber-100 bg-amber-500/20 hover:bg-amber-500/30 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-amber-400/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                title="Chọn một câu ngẫu nhiên trong khối lớp"
+              >
+                <span>🎲 Đổi ngẫu nhiên</span>
+              </button>
+
+              <button
+                onClick={handleGenerateDynamic}
+                className="text-[10px] sm:text-xs font-bold text-cyan-200 hover:text-cyan-100 bg-cyan-500/20 hover:bg-cyan-500/30 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-cyan-400/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                title="Tạo đề toán số ngẫu nhiên không giới hạn"
+              >
+                <Sparkles className="w-3 h-3 text-cyan-300" />
+                <span className="hidden sm:inline">Tạo câu mới</span>
+              </button>
+
+              <button
+                onClick={handleNextQuestion}
+                className="text-[10px] sm:text-xs font-bold text-indigo-200 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 sm:py-1.5 rounded-xl border border-white/10 cursor-pointer transition-all active:scale-95"
+              >
+                <span>Kế tiếp</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="bg-indigo-900/40 border border-indigo-400/30 rounded-xl p-2 sm:p-2.5 flex items-center justify-between gap-2">
