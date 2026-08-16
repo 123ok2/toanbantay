@@ -37,9 +37,11 @@ export const Header: React.FC<HeaderProps> = ({
                   Toán Thông Minh 🧮
                 </span>
               </div>
-              <p className="text-[10px] sm:text-xs text-slate-500 font-medium line-clamp-1 sm:line-clamp-none">
-                Đấu trường toán bàn tay AI & nhận diện qua camera trực tiếp
-              </p>
+                <p className="text-[10px] sm:text-xs text-slate-500 font-medium flex items-center gap-1.5 flex-wrap">
+                  <span className="font-semibold text-indigo-600">PTDTBT THCS Thu Cúc</span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-amber-600 font-medium">Sáng tạo Trẻ toàn quốc (Lĩnh vực AI)</span>
+                </p>
             </div>
           </div>
 

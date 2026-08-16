@@ -99,6 +99,25 @@ export const TeacherInfoModal: React.FC<TeacherInfoModalProps> = ({
               * Toàn bộ quá trình xử lý hình ảnh và đếm ngón tay diễn ra cục bộ trực tiếp trên trình duyệt.
             </p>
           </div>
+
+          {/* Copyright and Competition Information */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-300/60 text-slate-800">
+            <div className="flex items-center gap-2 font-bold text-slate-900 mb-1.5">
+              <Trophy className="w-4 h-4 text-amber-500" />
+              <span className="text-xs sm:text-sm">Thông tin Bản quyền & Cuộc thi</span>
+            </div>
+            <div className="space-y-1 text-xs text-slate-700">
+              <p className="font-semibold text-indigo-950 flex items-center gap-1.5">
+                🏛️ <span>Đơn vị:</span> <strong className="text-indigo-700">Trường PTDTBT THCS Thu Cúc</strong>
+              </p>
+              <p className="font-semibold text-amber-950 flex items-center gap-1.5">
+                🌟 <span>Dự án:</span> <strong className="text-amber-700">Sáng tạo Trẻ toàn quốc (Lĩnh vực AI)</strong>
+              </p>
+              <p className="text-[11px] text-slate-500 pt-1 border-t border-amber-200/50 mt-1">
+                © Bản quyền thuộc về PTDTBT THCS Thu Cúc • Sáng tạo Trẻ toàn quốc (Lĩnh vực AI)
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Modal Footer */}

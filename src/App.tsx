@@ -87,15 +87,19 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800 py-3 text-center text-xs text-slate-400 mt-auto">
-        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-1.5">
-          <p className="font-medium text-slate-300">
-            🧮 **Giao diện Hợp nhất 3-trong-1**: Bài toán + Camera AI + Kết quả nhận diện trực tiếp
-          </p>
-          <p className="text-slate-500 text-[11px]">
-            MediaPipe Hand Tracking • AI Vision • Phát âm tiếng Việt
-          </p>
+      {/* Footer & Copyright */}
+      <footer className="bg-slate-900 border-t border-slate-800 py-3.5 text-center text-xs text-slate-400 mt-auto">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col items-center justify-center">
+          {/* Main Copyright Notice */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-2 text-center text-xs text-slate-200">
+            <span className="font-bold text-amber-400 flex items-center gap-1">
+              🏆 Bản quyền thuộc về PTDTBT THCS Thu Cúc
+            </span>
+            <span className="hidden sm:inline text-slate-600">•</span>
+            <span className="font-semibold text-indigo-300">
+              Sáng tạo Trẻ toàn quốc (Lĩnh vực AI)
+            </span>
+          </div>
         </div>
       </footer>
 
