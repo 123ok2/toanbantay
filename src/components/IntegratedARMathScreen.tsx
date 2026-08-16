@@ -494,13 +494,13 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
               setSelectedGrade(e.target.value);
               setCurrentQuestionIndex(0);
             }}
-            className="w-full bg-slate-900/90 hover:bg-slate-850 text-slate-100 text-xs font-semibold rounded-xl px-3 py-2 border border-indigo-500/30 hover:border-indigo-500/50 outline-none cursor-pointer transition-all truncate shadow-sm focus:ring-1 focus:ring-cyan-400"
+            className="w-full bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 border border-slate-200 outline-none cursor-pointer transition-all truncate shadow-xs focus:ring-2 focus:ring-indigo-500/20"
           >
-            <option value="Tất cả" className="bg-slate-900 text-white">
+            <option value="Tất cả" className="bg-white text-slate-900">
               Tất cả khối ({MASTER_MATH_QUESTION_BANK.length} câu)
             </option>
             {GRADE_LEVEL_OPTIONS.map((g) => (
-              <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+              <option key={g.id} value={g.id} className="bg-white text-slate-900">
                 {g.label}
               </option>
             ))}
@@ -510,14 +510,14 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
         {/* Right: Unified Stats Pill & Voice Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Combined Score + Streak Pill */}
-          <div className="flex items-center gap-2.5 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-indigo-500/10 px-3 py-1.5 rounded-xl border border-amber-400/35 text-xs font-bold shadow-sm">
-            <div className="flex items-center gap-1 text-amber-300">
-              <Trophy className="w-3.5 h-3.5 fill-amber-400/20" />
+          <div className="flex items-center gap-2.5 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1.5 rounded-xl border border-amber-200 text-xs font-bold shadow-xs">
+            <div className="flex items-center gap-1 text-amber-700">
+              <Trophy className="w-3.5 h-3.5 fill-amber-500/30 text-amber-600" />
               <span>{score}</span>
             </div>
-            <span className="text-amber-500/40">•</span>
-            <div className="flex items-center gap-1 text-orange-400">
-              <Flame className="w-3.5 h-3.5 fill-orange-400/30" />
+            <span className="text-amber-300">•</span>
+            <div className="flex items-center gap-1 text-orange-600">
+              <Flame className="w-3.5 h-3.5 fill-orange-500/30 text-orange-500" />
               <span>{streak}</span>
             </div>
           </div>
@@ -526,26 +526,26 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
           <button
             onClick={handleReadQuestion}
             title="Đọc đề bài"
-            className={`w-8 h-8 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
+            className={`w-8 h-8 rounded-xl border transition-all cursor-pointer flex items-center justify-center shadow-xs ${
               isSpeakingQuestion
-                ? "bg-amber-400 text-slate-950 border-amber-300 shadow-sm"
-                : "bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-indigo-500/40"
+                ? "bg-amber-400 text-slate-950 border-amber-400"
+                : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300"
             }`}
           >
-            <Volume2 className={`w-4 h-4 text-cyan-400 ${isSpeakingQuestion ? "animate-pulse" : ""}`} />
+            <Volume2 className={`w-4 h-4 text-indigo-600 ${isSpeakingQuestion ? "animate-pulse text-slate-950" : ""}`} />
           </button>
 
           {/* Encouragement Button */}
           <button
             onClick={handleMotivationalCheer}
             title="Khích lệ & động viên"
-            className={`w-8 h-8 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
+            className={`w-8 h-8 rounded-xl border transition-all cursor-pointer flex items-center justify-center shadow-xs ${
               isSpeakingPraise
-                ? "bg-rose-500 text-white border-rose-400 shadow-sm"
-                : "bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-indigo-500/40"
+                ? "bg-rose-500 text-white border-rose-500"
+                : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-rose-300"
             }`}
           >
-            <Heart className={`w-4 h-4 text-rose-400 ${isSpeakingPraise ? "fill-rose-400" : ""}`} />
+            <Heart className={`w-4 h-4 text-rose-500 ${isSpeakingPraise ? "fill-white text-white" : ""}`} />
           </button>
         </div>
       </div>
@@ -553,22 +553,22 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
       {/* =========================================================================
           2. MATH QUESTION CARD (Hero Focus)
          ========================================================================= */}
-      <div className="bg-gradient-to-br from-slate-900/95 via-slate-900/90 to-indigo-950/40 border border-indigo-500/25 rounded-2xl p-3.5 sm:p-4 shadow-lg shadow-indigo-950/20 flex flex-col gap-3">
+      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col gap-3">
         {/* Top Card Row: Info Badges & Quick Action Controls (Strictly 1 line) */}
         <div className="flex items-center justify-between gap-2 flex-nowrap min-w-0">
           {/* Metadata Badges */}
           <div className="flex items-center gap-1.5 text-xs font-medium min-w-0 truncate">
-            <span className="font-bold text-cyan-300 shrink-0">
+            <span className="font-extrabold text-indigo-600 shrink-0">
               #{currentQuestionIndex + 1}/{questionPool.length}
             </span>
-            <span className="text-slate-600 shrink-0">•</span>
-            <span className="text-indigo-200 font-semibold truncate">
+            <span className="text-slate-300 shrink-0">•</span>
+            <span className="text-slate-700 font-bold truncate">
               {currentQ.topic || "Toán học"}
             </span>
             {currentQ.difficulty && (
               <>
-                <span className="text-slate-600 shrink-0 hidden xs:inline">•</span>
-                <span className="text-slate-400 shrink-0 hidden xs:inline font-normal">{currentQ.difficulty}</span>
+                <span className="text-slate-300 shrink-0 hidden xs:inline">•</span>
+                <span className="text-slate-500 shrink-0 hidden xs:inline font-normal">{currentQ.difficulty}</span>
               </>
             )}
           </div>
@@ -581,31 +581,31 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
                 soundManager.playClick();
                 setShowMathHint((prev) => !prev);
               }}
-              className={`text-xs font-semibold px-2 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+              className={`text-xs font-bold px-2 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
                 showMathHint
-                  ? "bg-amber-400/20 text-amber-300 border-amber-400/50 shadow-xs"
-                  : "bg-slate-800/90 hover:bg-slate-750 text-slate-300 border-slate-700/70"
+                  ? "bg-amber-100 text-amber-800 border-amber-300 shadow-xs"
+                  : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200"
               }`}
               title="Gợi ý phương pháp"
             >
-              <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+              <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
               <span className="text-xs">Gợi ý</span>
             </button>
 
             {/* Random Button */}
             <button
               onClick={handleRandomQuestion}
-              className="w-7 h-7 sm:w-auto sm:px-2 sm:py-1 rounded-lg bg-slate-800/90 hover:bg-slate-750 text-slate-300 border border-slate-700/70 cursor-pointer transition-all flex items-center justify-center gap-1 shrink-0"
+              className="w-7 h-7 sm:w-auto sm:px-2 sm:py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer transition-all flex items-center justify-center gap-1 shrink-0"
               title="Đổi bài ngẫu nhiên"
             >
-              <Dice5 className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline text-xs font-semibold">Đổi</span>
+              <Dice5 className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline text-xs font-bold">Đổi</span>
             </button>
 
             {/* Next Question */}
             <button
               onClick={handleNextQuestion}
-              className="text-xs font-bold px-2.5 sm:px-3 py-1 rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white cursor-pointer transition-all flex items-center gap-1 shadow-md shadow-indigo-600/30 shrink-0 active:scale-95"
+              className="text-xs font-bold px-2.5 sm:px-3 py-1 rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white cursor-pointer transition-all flex items-center gap-1 shadow-sm shadow-indigo-600/20 shrink-0 active:scale-95"
               title="Câu tiếp theo"
             >
               <span>Tiếp</span>
@@ -615,28 +615,28 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
         </div>
 
         {/* Question Statement */}
-        <div className="text-base sm:text-xl md:text-2xl font-extrabold text-white tracking-normal leading-relaxed break-words">
+        <div className="text-base sm:text-xl md:text-2xl font-extrabold text-slate-900 tracking-normal leading-relaxed break-words">
           {currentQ.problemStr}
         </div>
 
         {/* Collapsible Pedagogical Hint */}
         {showMathHint && (
-          <div className="bg-amber-950/30 border border-amber-400/30 rounded-xl p-3 text-xs text-amber-200/90 space-y-1.5">
-            <div className="flex items-center justify-between text-amber-300 font-bold">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1.5">
+            <div className="flex items-center justify-between text-amber-800 font-bold">
               <span className="flex items-center gap-1.5">
-                <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <Lightbulb className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 <span>Gợi ý phương pháp:</span>
               </span>
               <button
                 onClick={() => setShowMathHint(false)}
-                className="text-[11px] text-amber-400 hover:text-white cursor-pointer"
+                className="text-[11px] text-amber-700 hover:text-amber-900 font-bold cursor-pointer"
               >
                 Đóng ✕
               </button>
             </div>
             <p className="leading-relaxed">{getPedagogicalHint(currentQ)}</p>
             {getPedagogicalAnalogy(currentQ) && (
-              <div className="text-[11px] font-mono text-amber-300 bg-black/40 px-2 py-0.5 rounded-md inline-block border border-amber-400/20">
+              <div className="text-[11px] font-mono text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md inline-block border border-amber-300">
                 {getPedagogicalAnalogy(currentQ)}
               </div>
             )}
@@ -647,7 +647,7 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
       {/* =========================================================================
           3. CAMERA VIEWPORT (Clean Minimalist Frame)
          ========================================================================= */}
-      <div className="relative w-full aspect-4/3 sm:aspect-16/9 min-h-[220px] max-h-[360px] sm:max-h-[420px] bg-slate-950 rounded-2xl border border-indigo-500/25 overflow-hidden flex items-center justify-center select-none shadow-lg shadow-indigo-950/20">
+      <div className="relative w-full aspect-4/3 sm:aspect-16/9 min-h-[220px] max-h-[360px] sm:max-h-[420px] bg-slate-950 rounded-2xl border border-slate-300 overflow-hidden flex items-center justify-center select-none shadow-md">
         {/* Video Element */}
         <video
           ref={videoRef}
@@ -665,12 +665,12 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
 
         {/* Camera Off State */}
         {!isStreaming && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-slate-950/90 text-white z-10">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-center mb-2.5 text-cyan-400 shadow-md">
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-slate-900/95 text-white z-10">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-950/60 border border-indigo-500/40 flex items-center justify-center mb-2.5 text-cyan-400 shadow-md">
               <VideoOff className="w-6 h-6" />
             </div>
             <h3 className="text-sm font-bold text-white mb-1">Camera AI Đang Tắt</h3>
-            <p className="text-xs text-slate-400 mb-3.5 max-w-[260px]">
+            <p className="text-xs text-slate-300 mb-3.5 max-w-[260px]">
               Bật camera để AI MediaPipe tự động trích xuất ngón tay và chấm điểm thời gian thực
             </p>
             <button
@@ -755,12 +755,12 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
       {/* =========================================================================
           4. TOUCH KEYPAD & CAMERA ACTION BAR
          ========================================================================= */}
-      <div className="bg-slate-900/90 border border-indigo-500/20 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2.5 shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2.5 shadow-sm">
         {/* Fast Keypad 0 - 10 */}
         <div className="flex flex-col gap-1.5">
-          <div className="text-[11px] text-slate-400 font-semibold flex items-center justify-between px-0.5">
-            <span className="text-slate-300">Chạm số để trả lời nhanh:</span>
-            <span className="text-cyan-400 font-medium">0 - 10 ngón tay</span>
+          <div className="text-[11px] text-slate-500 font-bold flex items-center justify-between px-0.5">
+            <span className="text-slate-700">Chạm số để trả lời nhanh:</span>
+            <span className="text-indigo-600 font-semibold">0 - 10 ngón tay</span>
           </div>
 
           <div className="grid grid-cols-11 gap-1 w-full">
@@ -768,10 +768,10 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
               <button
                 key={num}
                 onClick={() => handleValidateAnswer(num)}
-                className={`h-9 rounded-lg font-bold text-xs sm:text-sm border transition-all cursor-pointer flex items-center justify-center active:scale-95 ${
+                className={`h-9 rounded-lg font-extrabold text-xs sm:text-sm border transition-all cursor-pointer flex items-center justify-center active:scale-95 shadow-2xs ${
                   num === currentQ.correctAnswer && feedbackState === "correct"
-                    ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-md"
-                    : "bg-slate-800/90 hover:bg-indigo-600 hover:text-white text-slate-200 border-slate-700/70 hover:border-indigo-400"
+                    ? "bg-emerald-500 text-white border-emerald-600 shadow-md"
+                    : "bg-slate-50 hover:bg-indigo-600 hover:text-white text-slate-800 border-slate-200 hover:border-indigo-600"
                 }`}
               >
                 {num}
@@ -781,14 +781,14 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
         </div>
 
         {/* Camera Action Row */}
-        <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+        <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
           <button
             onClick={handleFlipCamera}
             disabled={!isStreaming}
-            className="flex-1 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-750 disabled:opacity-40 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-700/70 cursor-pointer transition-all active:scale-95"
+            className="flex-1 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-200 cursor-pointer transition-all active:scale-95 shadow-xs"
             title="Đổi camera trước/sau"
           >
-            <SwitchCamera className="w-3.5 h-3.5 text-cyan-400" />
+            <SwitchCamera className="w-3.5 h-3.5 text-indigo-600" />
             <span>Đổi camera</span>
           </button>
 
@@ -801,10 +801,10 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
                 startCamera();
               }
             }}
-            className={`flex-1 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer active:scale-95 ${
+            className={`flex-1 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95 ${
               isStreaming
-                ? "bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40"
-                : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20"
+                ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 shadow-xs"
+                : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-600/20"
             }`}
           >
             {isStreaming ? (
