@@ -487,7 +487,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       </div>
 
       {/* Main Camera Video Feed & Canvas Wrapper (Compact & Responsive) */}
-      <div className="relative w-full aspect-4/3 max-h-[260px] sm:max-h-[320px] bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-indigo-100 flex items-center justify-center group">
+      <div className="relative w-full aspect-16/10 sm:aspect-4/3 max-h-[200px] sm:max-h-[300px] bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-indigo-100 flex items-center justify-center group">
         {/* Video Element */}
         <video
           ref={videoRef}

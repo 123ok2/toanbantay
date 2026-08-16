@@ -1,63 +1,28 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback } from "react";
 import { Header } from "./components/Header";
-import { CameraView } from "./components/CameraView";
-import { GestureResultCard } from "./components/GestureResultCard";
-import { CameraMathInteractiveGame } from "./components/CameraMathInteractiveGame";
+import { IntegratedARMathScreen } from "./components/IntegratedARMathScreen";
+import { GestureGuide } from "./components/GestureGuide";
+import { PracticeHistory } from "./components/PracticeHistory";
 import { TeacherInfoModal } from "./components/TeacherInfoModal";
 import { RecognitionResult } from "./types";
 import { soundManager } from "./utils/soundEffects";
+import { BookOpen, History, Sparkles, Trophy } from "lucide-react";
 
 export default function App() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [currentResult, setCurrentResult] = useState<RecognitionResult | null>(null);
-  const [geminiExplanation, setGeminiExplanation] = useState<string | null>(null);
   const [useGemini, setUseGemini] = useState<boolean>(false);
-  const [isAnalyzingGemini, setIsAnalyzingGemini] = useState<boolean>(false);
   const [soundOn, setSoundOn] = useState<boolean>(true);
   const [infoModalOpen, setInfoModalOpen] = useState<boolean>(false);
+  const [showReferenceGuide, setShowReferenceGuide] = useState<boolean>(false);
 
-  // Handle gesture detection result from CameraView
+  // Handle gesture detection result
   const handleGestureDetected = useCallback(
     (result: RecognitionResult) => {
       setCurrentResult(result);
     },
     []
   );
-
-  // Trigger Gemini AI Vision Analysis
-  const handleTriggerGeminiAnalysis = async (imageBase64: string) => {
-    setIsAnalyzingGemini(true);
-    setGeminiExplanation(null);
-    try {
-      const response = await fetch("/api/analyze-gesture", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64 }),
-      });
-      const data = await response.json();
-
-      if (data.explanation) {
-        setGeminiExplanation(data.explanation);
-        soundManager.playSuccessChime();
-      } else if (data.gestureName) {
-        setGeminiExplanation(
-          `Cử chỉ phát hiện: ${data.emoji} ${data.gestureName} (Độ tin cậy: ${data.confidence || 90}%).`
-        );
-      } else {
-        setGeminiExplanation("Gemini AI đã phân tích khung hình nhưng chưa xác định rõ ngón tay.");
-      }
-    } catch (err) {
-      console.error("Lỗi khi gọi API Gemini:", err);
-      setGeminiExplanation("Không thể kết nối dịch vụ Gemini AI. Vui lòng kiểm tra lại mạng.");
-    } finally {
-      setIsAnalyzingGemini(false);
-    }
-  };
-
-  const handleClearResult = () => {
-    setCurrentResult(null);
-    setGeminiExplanation(null);
-  };
 
   const handleToggleSound = () => {
     setSoundOn(!soundOn);
@@ -66,7 +31,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-indigo-500 selection:text-white">
       {/* Top Header */}
       <Header
         isStreaming={isStreaming}
@@ -78,49 +43,58 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-5 sm:space-y-6">
-        {/* Top Section: Camera AI Trực Tiếp & Kết Quả Nhận Diện AI */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-          {/* Left Column: Camera AI Trực Tiếp (7 cols) */}
-          <div className="lg:col-span-7 flex flex-col">
-            <CameraView
-              isStreaming={isStreaming}
-              setIsStreaming={setIsStreaming}
-              onGestureDetected={handleGestureDetected}
-              useGemini={useGemini}
-              isAnalyzingGemini={isAnalyzingGemini}
-              onTriggerGeminiAnalysis={handleTriggerGeminiAnalysis}
-            />
-          </div>
+      <main className="flex-1 max-w-5xl w-full mx-auto px-2 sm:px-4 py-2 sm:py-3 flex flex-col gap-3">
+        {/* =========================================================================
+            CORE 3-IN-1 UNIFIED SCREEN:
+            LỒNG GHÉP BÀI TOÁN + CAMERA AI TRỰC TIẾP + KẾT QUẢ NHẬN DIỆN AI
+           ========================================================================= */}
+        <IntegratedARMathScreen
+          isStreaming={isStreaming}
+          setIsStreaming={setIsStreaming}
+          onGestureDetected={handleGestureDetected}
+          useGemini={useGemini}
+        />
 
-          {/* Right Column: Kết Quả Nhận Diện AI (5 cols) */}
-          <div className="lg:col-span-5 flex flex-col h-full">
-            <GestureResultCard
-              result={currentResult}
-              onClearResult={handleClearResult}
-              geminiExplanation={geminiExplanation}
-            />
+        {/* Collapsible Reference Guide & History Bar */}
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
+          <button
+            onClick={() => {
+              soundManager.playClick();
+              setShowReferenceGuide(!showReferenceGuide);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition-all cursor-pointer shadow-xs"
+          >
+            <BookOpen className="w-4 h-4 text-amber-400" />
+            <span>{showReferenceGuide ? "Ẩn Thư Viện Ký Hiệu & Lịch Sử" : "📖 Xem Thư Viện Ký Hiệu & Lịch Sử"}</span>
+          </button>
+
+          <div className="text-[11px] text-slate-400 hidden sm:flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>AI nhận diện tự động qua MediaPipe Vision</span>
           </div>
         </div>
 
-        {/* Core Feature: Đấu Trường Toán Bàn Tay AI */}
-        <section>
-          <CameraMathInteractiveGame
-            currentResult={currentResult}
-            isStreaming={isStreaming}
-            onStartCamera={() => setIsStreaming(true)}
-          />
-        </section>
+        {/* Optional Collapsible Gesture Guide & History */}
+        {showReferenceGuide && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start animate-fadeIn">
+            <div className="lg:col-span-7">
+              <GestureGuide />
+            </div>
+            <div className="lg:col-span-5">
+              <PracticeHistory />
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-slate-200/80 py-5 text-center text-xs text-slate-500 mt-8">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="font-medium text-slate-600">
-            🧮 **Đấu Trường Toán Bàn Tay & Nhận Diện Camera AI** — Học toán thông minh & phản xạ ngón tay qua thị giác máy tính
+      <footer className="bg-slate-900 border-t border-slate-800 py-3 text-center text-xs text-slate-400 mt-auto">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-1.5">
+          <p className="font-medium text-slate-300">
+            🧮 **Giao diện Hợp nhất 3-trong-1**: Bài toán + Camera AI + Kết quả nhận diện trực tiếp
           </p>
-          <p className="text-slate-400">
-            React + TypeScript + MediaPipe Computer Vision + Gemini AI
+          <p className="text-slate-500 text-[11px]">
+            MediaPipe Hand Tracking • AI Vision • Phát âm tiếng Việt
           </p>
         </div>
       </footer>

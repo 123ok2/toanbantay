@@ -77,15 +77,15 @@ export const GestureResultCard: React.FC<GestureResultCardProps> = ({
         </div>
 
         {/* Compact Result Box */}
-        <div className="bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 border border-indigo-100/80 rounded-xl p-3.5 sm:p-4 text-center my-1.5 shadow-inner relative flex flex-col items-center justify-center min-h-[160px] sm:min-h-[180px]">
+        <div className="bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 border border-indigo-100/80 rounded-xl p-2.5 sm:p-4 text-center my-1 shadow-inner relative flex flex-col items-center justify-center min-h-[120px] sm:min-h-[180px]">
           {/* Hand Count & Finger Count Badge */}
           {currentResult.handCount > 0 && (
-            <div className="absolute top-2 right-2 flex items-center gap-1">
-              <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+            <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+              <span className="bg-indigo-600 text-white text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-xs">
                 {currentResult.handCount >= 2 ? "✋✋ 2 Tay" : "✋ 1 Tay"}
               </span>
               {currentResult.fingerCount > 0 && (
-                <span className="bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                <span className="bg-purple-600 text-white text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-xs">
                   🔢 {currentResult.fingerCount} Ngón
                 </span>
               )}
@@ -93,12 +93,12 @@ export const GestureResultCard: React.FC<GestureResultCardProps> = ({
           )}
 
           {/* Animated Emoji */}
-          <div className="text-4xl sm:text-5xl mb-1.5 transform hover:scale-110 transition-transform duration-300 drop-shadow-sm select-none">
+          <div className="text-3xl sm:text-5xl mb-1 transform hover:scale-110 transition-transform duration-300 drop-shadow-sm select-none">
             {currentResult.emoji}
           </div>
 
           {/* Vietnamese Gesture Name */}
-          <h3 className="text-lg sm:text-xl font-black text-slate-900 mb-0.5 tracking-tight">
+          <h3 className="text-base sm:text-xl font-black text-slate-900 mb-0.5 tracking-tight">
             {currentResult.name}
           </h3>
 
