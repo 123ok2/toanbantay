@@ -207,14 +207,14 @@ class SoundManager {
     }
   }
 
-  // Natural Vietnamese Speech Engine
+  // Natural Vietnamese Speech Engine (Multi-Tier Architecture for AI Studio, Vercel & Production)
   public async speakText(text: string): Promise<boolean> {
     if (!this.speechEnabled || !text) return false;
 
-    // Clean text for speech
+    // Clean text for speech: strip emojis, math symbols, and markdown
     const cleanText = text
       .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
-      .replace(/[➕➖✖️➗📐⚖️🧩💎⚡🎯🚤🤝🌿🌟💯🛑🧮💡🎉🍬🍪🚀🍊🍎⭐🎈🔊👏!?,.]/g, " ")
+      .replace(/[➕➖✖️➗📐⚖️🧩💎⚡🎯🚤🤝🌿🌟💯🛑🧮💡🎉🍬🍪🚀🍊🍎⭐🎈🔊👏!?,.*_#`~[\]()]/g, " ")
       .replace(/[\n\r\t]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -223,14 +223,43 @@ class SoundManager {
 
     const lower = cleanText.toLowerCase();
 
+    // Helper: Stop previous speech/audio
+    if (this.currentPlayingAudio) {
+      try {
+        this.currentPlayingAudio.pause();
+        this.currentPlayingAudio.currentTime = 0;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Helper: Function to play an audio element with promise error catch
+    const tryPlayAudio = async (audioUrl: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+        try {
+          const audio = new Audio(audioUrl);
+          this.currentPlayingAudio = audio;
+          audio.volume = 1.0;
+
+          audio.onended = () => resolve(true);
+          audio.onerror = () => resolve(false);
+
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => resolve(true)).catch(() => resolve(false));
+          } else {
+            resolve(true);
+          }
+        } catch (e) {
+          resolve(false);
+        }
+      });
+    };
+
     // 1. Check local audio cache
     const cached = this.audioCache.get(lower);
     if (cached) {
       try {
-        if (this.currentPlayingAudio) {
-          this.currentPlayingAudio.pause();
-          this.currentPlayingAudio.currentTime = 0;
-        }
         cached.currentTime = 0;
         this.currentPlayingAudio = cached;
         cached.volume = 1.0;
@@ -244,60 +273,53 @@ class SoundManager {
       }
     }
 
-    // 2. Play via Server TTS Endpoint
-    try {
-      if (this.currentPlayingAudio) {
-        this.currentPlayingAudio.pause();
-        this.currentPlayingAudio.currentTime = 0;
-      }
-
-      let audio = this.audioCache.get(cleanText);
-      if (!audio) {
-        const ttsUrl = `/api/tts?text=${encodeURIComponent(cleanText.slice(0, 180))}`;
-        audio = new Audio(ttsUrl);
-        this.audioCache.set(cleanText, audio);
-      } else {
-        audio.currentTime = 0;
-      }
-
-      this.currentPlayingAudio = audio;
-      audio.volume = 1.0;
-
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        await playPromise;
-        return true;
-      }
-    } catch (e) {
-      // fallback to Web Speech API
+    // 2. Play via Server TTS / Vercel Serverless Endpoint (/api/tts)
+    const encodedText = encodeURIComponent(cleanText.slice(0, 180));
+    const internalTtsUrl = `/api/tts?text=${encodedText}`;
+    const internalSuccess = await tryPlayAudio(internalTtsUrl);
+    if (internalSuccess) {
+      return true;
     }
 
-    // 3. Web Speech API Fallback
+    // 3. Direct Google TTS fallback (with CORS audio element)
+    const directGoogleTts = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=vi&client=tw-ob`;
+    const directSuccess = await tryPlayAudio(directGoogleTts);
+    if (directSuccess) {
+      return true;
+    }
+
+    // 4. Web Speech API Fallback (with smart Vietnamese Voice selection)
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         if (this.voices.length === 0) {
           this.voices = window.speechSynthesis.getVoices();
         }
 
-        const viVoice = this.voices.find(
-          (v) =>
-            v.lang.toLowerCase().startsWith("vi") ||
-            v.name.toLowerCase().includes("vietnam") ||
-            v.name.toLowerCase().includes("tiếng việt") ||
-            v.name.toLowerCase().includes("hoaimy") ||
-            v.name.toLowerCase().includes("namminh") ||
-            v.name.toLowerCase().includes("linh") ||
-            v.name.toLowerCase().includes("an") ||
-            v.name.toLowerCase().includes("mai")
-        );
+        // Priority list for Vietnamese voices across Google Chrome, Edge, Safari, Android, iOS
+        const viVoice =
+          this.voices.find((v) => v.lang === "vi-VN" || v.lang === "vi_VN") ||
+          this.voices.find(
+            (v) =>
+              v.lang.toLowerCase().startsWith("vi") ||
+              v.name.toLowerCase().includes("vietnam") ||
+              v.name.toLowerCase().includes("tiếng việt") ||
+              v.name.toLowerCase().includes("hoaimy") ||
+              v.name.toLowerCase().includes("namminh") ||
+              v.name.toLowerCase().includes("linh") ||
+              v.name.toLowerCase().includes("an") ||
+              v.name.toLowerCase().includes("mai")
+          ) ||
+          this.voices.find((v) => v.lang.toLowerCase().includes("vi"));
 
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(cleanText);
         if (viVoice) {
           utterance.voice = viVoice;
+          utterance.lang = viVoice.lang;
+        } else {
+          utterance.lang = "vi-VN";
         }
-        utterance.lang = "vi-VN";
-        utterance.rate = 1.0;
+        utterance.rate = 0.95; // slightly slower for clearer Vietnamese pronunciation
         utterance.pitch = 1.05;
         utterance.volume = 1.0;
         window.speechSynthesis.speak(utterance);
