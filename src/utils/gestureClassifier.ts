@@ -11,46 +11,176 @@ function distance(a: Landmark, b: Landmark): number {
 }
 
 /**
- * Checks if a specific finger (index, middle, ring, pinky) is extended
+ * Calculates 3D vector between two landmarks (b - a)
+ */
+function vector(a: Landmark, b: Landmark): { x: number; y: number; z: number } {
+  return { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+}
+
+/**
+ * Computes the angle in degrees between two 3D vectors
+ */
+function angleBetween(
+  v1: { x: number; y: number; z: number },
+  v2: { x: number; y: number; z: number }
+): number {
+  const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+  const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
+  const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
+  if (mag1 === 0 || mag2 === 0) return 0;
+  const cosTheta = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+  return (Math.acos(cosTheta) * 180) / Math.PI;
+}
+
+/**
+ * Advanced Multi-Factor Finger Extension Classifier
+ * Resolves loose fists, half-curled fingers, imperfect folds, and camera tilt
  */
 function isStandardFingerExtended(
   mcp: Landmark,
   pip: Landmark,
   dip: Landmark,
   tip: Landmark,
-  wrist: Landmark
+  wrist: Landmark,
+  palmCenter: Landmark,
+  handLength: number
 ): boolean {
+  // 1. Phân đoạn giải phẫu ngón tay (Finger joint segment lengths)
+  const lenMcpPip = distance(mcp, pip);
+  const lenPipDip = distance(pip, dip);
+  const lenDipTip = distance(dip, tip);
+  const totalFingerSegmentLength = lenMcpPip + lenPipDip + lenDipTip;
+
+  if (totalFingerSegmentLength <= 0.001) return false;
+
+  // 2. Tỷ lệ duỗi thẳng (Scale-Invariant Straightness Ratio)
+  // Ngón duỗi thẳng: Tip cách xa MCP xấp xỉ bằng tổng chiều dài các đốt
+  // Ngón gập/nắm (dù lỏng): Tip cuộn sát vào MCP => Straightness Ratio giảm mạnh
+  const directMcpTip = distance(mcp, tip);
+  const straightnessRatio = directMcpTip / totalFingerSegmentLength;
+
+  // 3. Góc khớp PIP & DIP (Joint Flexion Angles)
+  // Khi duỗi thẳng: Góc giữa vector (PIP - MCP) và (TIP - PIP) rất nhỏ (< 35 độ)
+  // Khi gập lại: Góc gập lớn (> 60-80 độ)
+  const vecMcpPip = vector(mcp, pip);
+  const vecPipTip = vector(pip, tip);
+  const jointFlexionAngle = angleBetween(vecMcpPip, vecPipTip);
+
+  // 4. Khoảng cách tương đối tới tâm lòng bàn tay & cổ tay
   const dWristTip = distance(wrist, tip);
   const dWristPip = distance(wrist, pip);
-  const dMcpTip = distance(mcp, tip);
-  const dMcpPip = distance(mcp, pip);
-  const dPipTip = distance(pip, tip);
-  const dPipDip = distance(pip, dip);
+  const dPalmTip = distance(palmCenter, tip);
+  const dPalmMcp = distance(palmCenter, mcp);
 
-  // If hand is generally upright (wrist is below MCP in image coordinates)
-  const isUpright = wrist.y > mcp.y - 0.05;
+  // 5. Chiều dọc hướng bàn tay (Hand Axis Alignment)
+  // Vector trục bàn tay từ Wrist tới MCP
+  const vecHandAxis = vector(wrist, mcp);
+  const vecMcpTip = vector(mcp, tip);
+  const axisDot =
+    vecHandAxis.x * vecMcpTip.x +
+    vecHandAxis.y * vecMcpTip.y +
+    vecHandAxis.z * vecMcpTip.z;
 
-  // Condition 1: Tip is further from MCP than PIP is
-  const extendedByMcp = dMcpTip > dMcpPip * 1.14;
+  // === CÁC TIÊU CHÍ LOẠI TRỪ DỨT ĐOÁT (Definite Curl/Fold Detection) ===
+  // A. Nếu góc gập > 60 độ => Chắc chắn ngón đang gập/cuộn vào lòng bàn tay
+  if (jointFlexionAngle > 60) return false;
 
-  // Condition 2: Tip is further from wrist than PIP
-  const extendedByWrist = dWristTip > dWristPip * 1.05;
+  // B. Nếu tỷ lệ duỗi thẳng < 0.70 => Ngón đang gập (nắm tay chưa chặt, cong ngón)
+  if (straightnessRatio < 0.70) return false;
 
-  // Condition 3: Segment PIP-TIP is elongated (not curled back)
-  const segmentStraight = dPipTip > dPipDip * 1.1;
+  // C. Nếu Tip gần cổ tay hơn PIP => Ngón đang cuộn ngược về phía cổ tay/lòng bàn tay
+  if (dWristTip < dWristPip * 0.98) return false;
 
-  // Condition 4: In upright position, tip is distinctly above PIP
-  const uprightExtended = isUpright && tip.y < pip.y - 0.02;
+  // D. Nếu hình chiếu của ngón lên trục bàn tay âm hoặc quá nhỏ => Không duỗi theo hướng bàn tay
+  if (axisDot < 0) return false;
 
-  // Curled conditions (definite curl into palm)
-  const isCurled =
-    dMcpTip < dMcpPip * 0.95 ||
-    dWristTip < dWristPip * 0.95 ||
-    (isUpright && tip.y > pip.y + 0.02);
+  // E. Nếu Tip nằm quá gần tâm lòng bàn tay (so với chiều dài bàn tay)
+  if (dPalmTip < dPalmMcp * 0.95 && straightnessRatio < 0.85) return false;
 
-  if (isCurled) return false;
+  // === TIÊU CHÍ DUỖI THẲNG CHUẨN XÁC (Strict Extension Confirmation) ===
+  const isStraight = straightnessRatio >= 0.75;
+  const isAligned = jointFlexionAngle < 45;
+  const isExtendingFromWrist = dWristTip > dWristPip * 1.06;
+  const isFarFromPalm = dPalmTip > dPalmMcp * 1.1;
 
-  return (extendedByMcp && extendedByWrist && segmentStraight) || (uprightExtended && extendedByMcp);
+  // Cần thỏa mãn đồng thời tính thẳng hàng và vươn xa khỏi lòng bàn tay
+  return (isStraight && isAligned && isExtendingFromWrist) || (isStraight && isFarFromPalm && jointFlexionAngle < 40);
+}
+
+/**
+ * Advanced Thumb Extension & Abduction Classifier
+ * Strictly differentiates between thumb folded against palm / loose fist vs true extended thumb
+ */
+function isThumbExtended(
+  cmc: Landmark,
+  mcp: Landmark,
+  ip: Landmark,
+  tip: Landmark,
+  wrist: Landmark,
+  indexMcp: Landmark,
+  middleMcp: Landmark,
+  pinkyMcp: Landmark,
+  palmCenter: Landmark,
+  handScale: number
+): { isExtended: boolean; pointingUp: boolean; pointingDown: boolean } {
+  const lenCmcMcp = distance(cmc, mcp);
+  const lenMcpIp = distance(mcp, ip);
+  const lenIpTip = distance(ip, tip);
+  const totalThumbLength = lenCmcMcp + lenMcpIp + lenIpTip;
+
+  if (totalThumbLength <= 0.001) {
+    return { isExtended: false, pointingUp: false, pointingDown: false };
+  }
+
+  // 1. Tỷ lệ duỗi của ngón cái
+  const directCmcTip = distance(cmc, tip);
+  const thumbStraightness = directCmcTip / totalThumbLength;
+
+  // 2. Góc mở giữa các đốt ngón cái
+  const vecCmcMcp = vector(cmc, mcp);
+  const vecMcpTip = vector(mcp, tip);
+  const thumbAngle = angleBetween(vecCmcMcp, vecMcpTip);
+
+  // 3. Khoảng cách từ đầu ngón cái tới các khớp gốc ngón tay khác
+  const dThumbIndexMcp = distance(tip, indexMcp);
+  const dThumbMiddleMcp = distance(tip, middleMcp);
+  const dThumbPinkyMcp = distance(tip, pinkyMcp);
+  const dThumbPalmCenter = distance(tip, palmCenter);
+
+  // 4. Khoảng cách tương đối so với kích thước bàn tay
+  const normalizedIndexMcpDist = dThumbIndexMcp / (handScale || 0.1);
+  const normalizedPinkyMcpDist = dThumbPinkyMcp / (handScale || 0.1);
+
+  // Hướng ngón cái chỉ lên hoặc chỉ xuống
+  const pointingUp = tip.y < mcp.y - 0.03 && tip.y < indexMcp.y - 0.02 && thumbStraightness > 0.72;
+  const pointingDown = tip.y > mcp.y + 0.04 && tip.y > wrist.y && thumbStraightness > 0.72;
+
+  // === CÁC TIÊU CHÍ NGÓN CÁI GẬP / NẮM VÀO LÒNG BÀN TAY (Folded / Curled Thumb) ===
+  // - Nếu đầu ngón cái nằm áp sát gốc ngón trỏ hoặc ngón giữa (như khi nắm tay hoặc giơ 4 ngón)
+  if (normalizedIndexMcpDist < 0.42 && !pointingUp && !pointingDown) {
+    return { isExtended: false, pointingUp: false, pointingDown: false };
+  }
+
+  // - Nếu ngón cái cuộn cong (thumbStraightness thấp hoặc thumbAngle lớn)
+  if (thumbStraightness < 0.68 || thumbAngle > 55) {
+    return { isExtended: false, pointingUp: false, pointingDown: false };
+  }
+
+  // - Nếu ngón cái nằm quá gần tâm lòng bàn tay
+  if (dThumbPalmCenter < handScale * 0.45 && !pointingUp) {
+    return { isExtended: false, pointingUp: false, pointingDown: false };
+  }
+
+  // === TIÊU CHÍ NGÓN CÁI XÒE DUỖI THỰC SỰ (True Abducted / Extended Thumb) ===
+  const isFarFromHand = normalizedIndexMcpDist >= 0.45 || normalizedPinkyMcpDist >= 0.75;
+  const isStraightThumb = thumbStraightness >= 0.74 && thumbAngle < 45;
+
+  const isExtended =
+    (isStraightThumb && isFarFromHand) ||
+    (pointingUp && isStraightThumb) ||
+    (pointingDown && isStraightThumb);
+
+  return { isExtended, pointingUp, pointingDown };
 }
 
 /**
@@ -95,38 +225,72 @@ export function analyzeSingleHandFingers(landmarks: Landmark[]) {
   const pinkyDIP = landmarks[19];
   const pinkyTip = landmarks[20];
 
+  // Tính tâm lòng bàn tay (Palm Center)
+  const palmCenter: Landmark = {
+    x: (wrist.x + indexMCP.x + middleMCP.x + ringMCP.x + pinkyMCP.x) / 5,
+    y: (wrist.y + indexMCP.y + middleMCP.y + ringMCP.y + pinkyMCP.y) / 5,
+    z: (wrist.z + indexMCP.z + middleMCP.z + ringMCP.z + pinkyMCP.z) / 5,
+  };
+
   const handScale = distance(wrist, middleMCP) || 0.1;
 
-  // 1. Long fingers extended evaluation
-  const indexExtended = isStandardFingerExtended(indexMCP, indexPIP, indexDIP, indexTip, wrist);
-  const middleExtended = isStandardFingerExtended(middleMCP, middlePIP, middleDIP, middleTip, wrist);
-  const ringExtended = isStandardFingerExtended(ringMCP, ringPIP, ringDIP, ringTip, wrist);
-  const pinkyExtended = isStandardFingerExtended(pinkyMCP, pinkyPIP, pinkyDIP, pinkyTip, wrist);
+  // 1. Phân tích 4 ngón dài với bộ lọc chống nhận diện nhầm khi ngón gập/nửa chừng
+  const indexExtended = isStandardFingerExtended(
+    indexMCP,
+    indexPIP,
+    indexDIP,
+    indexTip,
+    wrist,
+    palmCenter,
+    handScale
+  );
 
-  // 2. Thumb extension evaluation
-  // When thumb is extended:
-  // - Thumb tip is far from thumb MCP (straightened)
-  // - Thumb tip is far from index MCP (stretched out from palm)
-  // - Thumb tip is far from pinky MCP (unfolded)
-  const dThumbTipMcp = distance(thumbTip, thumbMCP);
-  const dThumbIpMcp = distance(thumbIP, thumbMCP);
-  const dThumbTipPinkyMcp = distance(thumbTip, pinkyMCP);
-  const dThumbIpPinkyMcp = distance(thumbIP, pinkyMCP);
-  const dThumbTipIndexMcp = distance(thumbTip, indexMCP);
+  const middleExtended = isStandardFingerExtended(
+    middleMCP,
+    middlePIP,
+    middleDIP,
+    middleTip,
+    wrist,
+    palmCenter,
+    handScale
+  );
 
-  const thumbPointingUp = thumbTip.y < thumbMCP.y - 0.03 && thumbTip.y < indexMCP.y;
-  const thumbPointingDown = thumbTip.y > thumbMCP.y + 0.03 && thumbTip.y > wrist.y;
+  const ringExtended = isStandardFingerExtended(
+    ringMCP,
+    ringPIP,
+    ringDIP,
+    ringTip,
+    wrist,
+    palmCenter,
+    handScale
+  );
 
-  const thumbStraight = dThumbTipMcp > dThumbIpMcp * 1.2;
-  const thumbUnfolded = dThumbTipPinkyMcp > dThumbIpPinkyMcp * 1.1;
-  const thumbAwayFromPalm = dThumbTipIndexMcp > handScale * 0.38;
+  const pinkyExtended = isStandardFingerExtended(
+    pinkyMCP,
+    pinkyPIP,
+    pinkyDIP,
+    pinkyTip,
+    wrist,
+    palmCenter,
+    handScale
+  );
 
-  const thumbExtended =
-    (thumbStraight && thumbUnfolded && thumbAwayFromPalm) ||
-    (thumbPointingUp && thumbStraight);
+  // 2. Phân tích ngón cái với bộ kiểm tra độ mở và khoảng cách lòng bàn tay
+  const thumbResult = isThumbExtended(
+    thumbCMC,
+    thumbMCP,
+    thumbIP,
+    thumbTip,
+    wrist,
+    indexMCP,
+    middleMCP,
+    pinkyMCP,
+    palmCenter,
+    handScale
+  );
 
   let count = 0;
-  if (thumbExtended) count++;
+  if (thumbResult.isExtended) count++;
   if (indexExtended) count++;
   if (middleExtended) count++;
   if (ringExtended) count++;
@@ -135,20 +299,20 @@ export function analyzeSingleHandFingers(landmarks: Landmark[]) {
   return {
     fingerCount: count,
     extendedFingers: {
-      thumb: thumbExtended,
+      thumb: thumbResult.isExtended,
       index: indexExtended,
       middle: middleExtended,
       ring: ringExtended,
       pinky: pinkyExtended,
     },
-    thumbPointingUp,
-    thumbPointingDown,
+    thumbPointingUp: thumbResult.pointingUp,
+    thumbPointingDown: thumbResult.pointingDown,
     handScale,
   };
 }
 
 /**
- * Classifies a single hand gesture
+ * Classifies a single hand gesture with robust disambiguation
  */
 export function classifySingleHandGesture(landmarks: Landmark[]): { gestureId: GestureType; confidence: number } {
   if (!landmarks || landmarks.length < 21) {
@@ -220,24 +384,24 @@ export function classifySingleHandGesture(landmarks: Landmark[]): { gestureId: G
   // 11. Fist / Letter S / Number 0 (✊)
   else if (fingerCount === 0 || (!index && !middle && !ring && !pinky && !thumb)) {
     detectedId = "fist";
-    confidence = 94;
+    confidence = 95;
   }
-  // Number fallbacks
+  // Number fallbacks based on exact analyzed count
   else if (fingerCount === 1) {
     detectedId = "number_1";
-    confidence = 90;
+    confidence = 92;
   } else if (fingerCount === 2) {
     detectedId = "number_2";
-    confidence = 90;
+    confidence = 92;
   } else if (fingerCount === 3) {
     detectedId = "number_3";
-    confidence = 90;
+    confidence = 92;
   } else if (fingerCount === 4) {
     detectedId = "number_4";
-    confidence = 90;
+    confidence = 92;
   } else if (fingerCount === 5) {
     detectedId = "number_5";
-    confidence = 95;
+    confidence = 96;
   }
 
   return { gestureId: detectedId, confidence };

@@ -23,11 +23,14 @@ interface AIMathSolverAndTutorProps {
 }
 
 interface MathSolutionResponse {
-  finalAnswer: string;
-  steps: string[];
+  guidingSteps: string[];
+  thinkingPrompt: string;
   visualAnalogy: string;
   explanation: string;
   encouragement: string;
+  hiddenAnswer?: string;
+  finalAnswer?: string;
+  steps?: string[];
 }
 
 const PRESET_TOPICS = [
@@ -160,6 +163,7 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
   const [problemInput, setProblemInput] = useState<string>("Tìm số nguyên x biết: 3x - 15 = 45");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [solution, setSolution] = useState<MathSolutionResponse | null>(null);
+  const [showAnswer, setShowAnswer] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
   const filteredTopics = PRESET_TOPICS.filter(
@@ -173,6 +177,7 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
     soundManager.playClick();
     setIsLoading(true);
     setSolution(null);
+    setShowAnswer(false);
 
     try {
       const response = await fetch("/api/solve-math", {
@@ -186,26 +191,38 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
 
       const data = await response.json();
       setSolution({
-        finalAnswer: data.finalAnswer || "Xem kết quả bài giải",
-        steps: data.steps || ["Đang phân tích dữ liệu", "Thực hiện phép tính"],
-        visualAnalogy: data.visualAnalogy || "🍎 + 🍎 = 🍎🍎",
-        explanation: data.explanation || "Hướng dẫn chi tiết từng bước.",
-        encouragement: data.encouragement || "Bạn đã học rất xuất sắc! Hãy tiếp tục rèn luyện nhé!",
+        guidingSteps: data.guidingSteps || data.steps || [
+          "Bước 1: Phân tích dữ kiện và dạng toán.",
+          "Bước 2: Áp dụng phương pháp và biến đổi biểu thức.",
+          "Bước 3: Thực hiện tính toán từng bước để tìm kết quả.",
+        ],
+        thinkingPrompt:
+          data.thinkingPrompt ||
+          "Em hãy thực hiện phép tính theo các bước hướng dẫn trên để tự tìm ra đáp án nhé!",
+        visualAnalogy: data.visualAnalogy || "📐 Áp dụng quy tắc và biến đổi toán học",
+        explanation:
+          data.explanation ||
+          "Phương pháp: Nắm vững quy tắc biến đổi và thực hiện phép tính cẩn thận.",
+        encouragement:
+          data.encouragement ||
+          "Em hãy tự tin tính nháp nhé! Tự giải được bài toán sẽ giúp em nhớ lâu và tiến bộ vượt bậc! 🌟",
+        hiddenAnswer: data.hiddenAnswer || data.finalAnswer || "Tự tính theo hướng dẫn trên",
       });
 
       soundManager.playSuccessChime();
     } catch (err) {
-      console.error("Lỗi khi giải toán:", err);
+      console.error("Lỗi khi nhận hướng dẫn giải toán:", err);
       setSolution({
-        finalAnswer: "Kết quả ước tính",
-        steps: [
-          "Bước 1: Phân tích tóm tắt bài toán.",
-          "Bước 2: Lập sơ đồ phép tính tương ứng.",
-          "Bước 3: Thực hiện tính toán và ghi đáp số.",
+        guidingSteps: [
+          "Bước 1: Đọc kỹ đề bài, xác định các số liệu đã cho và số liệu cần tìm.",
+          "Bước 2: Áp dụng quy tắc chuyển vế hoặc công thức tương ứng.",
+          "Bước 3: Tính toán từng bước cẩn thận trên giấy nháp.",
         ],
-        visualAnalogy: "✏️ 15 + (15 + 8) = 15 + 23 = 38",
-        explanation: "Phân tích: Bình có 15 + 8 = 23 viên bi. Cả hai bạn có: 15 + 23 = 38 viên bi.",
-        encouragement: "Giỏi lắm! Hãy kiểm tra lại kết quả nhé!",
+        thinkingPrompt: "Em hãy áp dụng các bước trên để tự tính ra kết quả nhé!",
+        visualAnalogy: "✏️ Phân tích đề ➡️ Biến đổi công thức ➡️ Tính nháp",
+        explanation: "Phương pháp giải: Thực hiện chuyển vế đổi dấu và nhân chia hai vế.",
+        encouragement: "Cố gắng lên nào! Tự tay tính toán sẽ rèn luyện tư duy rất tốt!",
+        hiddenAnswer: "Tự tính toán theo các bước hướng dẫn trên",
       });
     } finally {
       setIsLoading(false);
@@ -215,14 +232,15 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
   const handleSpeakSolution = () => {
     if (!solution) return;
     soundManager.playClick();
-    const fullText = `Đáp số: ${solution.finalAnswer}. Lời giải: ${solution.explanation}`;
+    const stepsText = solution.guidingSteps.slice(0, 2).join(". ");
+    const fullText = `Hướng dẫn tư duy: ${stepsText}. ${solution.thinkingPrompt}`;
     soundManager.speakText(fullText);
   };
 
   const handleCopySolution = () => {
     if (!solution) return;
     soundManager.playClick();
-    const textToCopy = `BÀI GIẢI TOÁN AI:\nĐề bài: ${problemInput}\nĐáp số: ${solution.finalAnswer}\n\nCác bước giải:\n${solution.steps.join("\n")}`;
+    const textToCopy = `HƯỚNG DẪN TƯ DUY TOÁN HỌC:\nĐề bài: ${problemInput}\n\nCác bước hướng dẫn:\n${solution.guidingSteps.join("\n")}\n\nCâu hỏi gợi mở: ${solution.thinkingPrompt}`;
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -240,14 +258,14 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl sm:text-2xl font-black text-white">
-                  Gia Sư Giải Toán AI Từng Bước
+                  Gia Sư Hướng Dẫn Tư Duy Toán AI
                 </h2>
                 <span className="bg-cyan-400/20 text-cyan-300 border border-cyan-400/30 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
-                  Gemini AI Math Tutor 🤖
+                  Phương Pháp & Gợi Ý 💡
                 </span>
               </div>
               <p className="text-xs text-blue-200 mt-0.5">
-                Nhập bất kỳ đề bài toán nào (cộng trừ, nhân chia, toán có lời văn) để nhận lời giải minh họa siêu sinh động
+                AI sẽ hướng dẫn phương pháp, định hướng từng bước tư duy để bạn tự rèn luyện tính toán ra đáp số
               </p>
             </div>
           </div>
@@ -286,7 +304,7 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
             <label className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
               <Lightbulb className="w-4 h-4 text-amber-500" />
-              <span>Mẫu Bài Toán Phổ Biến (Bấm chọn thử ngay):</span>
+              <span>Mẫu Bài Toán Rèn Luyện (Bấm chọn để nhận hướng dẫn):</span>
             </label>
 
             {/* Category Filter Pills */}
@@ -338,7 +356,7 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
         {/* Math Problem Input Form */}
         <div className="space-y-2">
           <label className="text-xs font-bold text-slate-700 block">
-            Nhập đề bài toán của bạn vào đây:
+            Nhập đề bài toán bạn muốn nhận hướng dẫn:
           </label>
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
@@ -349,7 +367,7 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSolveMath();
                 }}
-                placeholder="Ví dụ: Tính 45 + 38 = ? hoặc Tìm x biết 2x + 10 = 30"
+                placeholder="Ví dụ: Tìm x biết 3x - 15 = 45 hoặc Tính diện tích hình tam giác..."
                 className="w-full bg-slate-50 border border-slate-300 rounded-2xl px-4 py-3 text-sm text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shadow-inner"
               />
             </div>
@@ -362,30 +380,31 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>AI đang giải...</span>
+                  <span>AI đang soạn hướng dẫn...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-cyan-300" />
-                  <span>Giải Bài Toán Bằng AI</span>
+                  <span>Xem Hướng Dẫn Tư Duy 💡</span>
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* AI SOLUTION DISPLAY BOARD */}
+        {/* AI GUIDANCE DISPLAY BOARD - KHÔNG ĐƯA ĐÁP ÁN TRỰC TIẾP */}
         {solution && (
           <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-6 rounded-3xl border-2 border-indigo-400/40 shadow-xl space-y-5 animate-fade-in">
-            {/* Answer Banner */}
+            {/* Top Bar with Voice & Copy */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
               <div>
-                <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wider block">
-                  🎯 ĐÁP SỐ CHÍNH XÁC:
+                <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider block flex items-center gap-1.5">
+                  <Lightbulb className="w-4 h-4 text-amber-400" />
+                  <span>ĐỊNH HƯỚNG PHƯƠNG PHÁP GIẢI:</span>
                 </span>
-                <div className="text-2xl sm:text-3xl font-black text-amber-300 mt-1 font-mono">
-                  {solution.finalAnswer}
-                </div>
+                <h3 className="text-base sm:text-lg font-bold text-white mt-1">
+                  Hãy làm theo các bước gợi ý dưới đây để tự tìm ra đáp án nhé!
+                </h3>
               </div>
 
               <div className="flex items-center gap-2">
@@ -394,13 +413,13 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
                   className="px-3.5 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
                 >
                   <Volume2 className="w-4 h-4 fill-slate-950" />
-                  <span>Đọc Lời Giải 🔊</span>
+                  <span>Nghe Hướng Dẫn 🔊</span>
                 </button>
 
                 <button
                   onClick={handleCopySolution}
                   className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/10"
-                  title="Sao chép bài giải"
+                  title="Sao chép hướng dẫn"
                 >
                   {copied ? (
                     <Check className="w-4 h-4 text-emerald-400" />
@@ -411,32 +430,20 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
               </div>
             </div>
 
-            {/* Visual Emoji Analogy */}
-            {solution.visualAnalogy && (
-              <div className="bg-amber-400/10 border border-amber-400/30 p-3.5 rounded-2xl">
-                <span className="text-[11px] text-amber-300 font-bold block mb-1">
-                  🎨 Sơ Đồ Minh Họa Trực Quan:
-                </span>
-                <div className="text-base sm:text-lg font-bold text-amber-100 font-mono">
-                  {solution.visualAnalogy}
-                </div>
-              </div>
-            )}
-
-            {/* Step-by-Step Explanation */}
+            {/* Step-by-Step Pedagogical Guidance */}
             <div className="space-y-3">
               <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider block flex items-center gap-1.5">
                 <BookOpen className="w-4 h-4" />
-                <span>Các Bước Giải Chi Tiết Từng Bước:</span>
+                <span>Các Bước Hướng Dẫn Tư Duy:</span>
               </span>
 
-              <div className="space-y-2">
-                {solution.steps.map((step, idx) => (
+              <div className="space-y-2.5">
+                {solution.guidingSteps.map((step, idx) => (
                   <div
                     key={idx}
-                    className="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3"
+                    className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3 hover:bg-white/10 transition-colors"
                   >
-                    <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5 border border-cyan-400/30">
+                    <span className="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-300 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5 border border-cyan-400/30 shadow-xs">
                       {idx + 1}
                     </span>
                     <p className="text-xs sm:text-sm text-slate-100 leading-relaxed font-medium">
@@ -446,6 +453,66 @@ export const AIMathSolverAndTutor: React.FC<AIMathSolverAndTutorProps> = () => {
                 ))}
               </div>
             </div>
+
+            {/* Socratic Thinking Prompt (Câu hỏi gợi mở để học sinh tự hoàn thành) */}
+            {solution.thinkingPrompt && (
+              <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-amber-500/10 border border-amber-400/30 p-4 rounded-2xl">
+                <span className="text-xs text-amber-300 font-extrabold block mb-1 flex items-center gap-1.5">
+                  <HelpCircle className="w-4 h-4 text-amber-400" />
+                  <span>Câu Hỏi Gợi Mở Để Em Tự Tính:</span>
+                </span>
+                <p className="text-sm sm:text-base font-bold text-amber-100 leading-relaxed">
+                  "{solution.thinkingPrompt}"
+                </p>
+              </div>
+            )}
+
+            {/* Visual Emoji Analogy */}
+            {solution.visualAnalogy && (
+              <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                <span className="text-[11px] text-indigo-300 font-bold block mb-1">
+                  🎨 Sơ Đồ Gợi Ý Trực Quan:
+                </span>
+                <div className="text-xs sm:text-sm font-semibold text-slate-200 font-mono">
+                  {solution.visualAnalogy}
+                </div>
+              </div>
+            )}
+
+            {/* Hidden Answer Check (Chỉ mở khi học sinh đã tự tính xong để đối chiếu) */}
+            {solution.hiddenAnswer && (
+              <div className="bg-slate-950/70 border border-indigo-400/30 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-300">
+                    🔒 Kiểm tra kết quả (Sau khi em đã tự làm nháp xong):
+                  </div>
+                  {showAnswer ? (
+                    <div className="text-lg font-black text-emerald-400 mt-1 font-mono flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                      <span>{solution.hiddenAnswer}</span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      Đáp số được khóa để khuyến khích em tự làm trước.
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    soundManager.playClick();
+                    setShowAnswer((prev) => !prev);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    showAnswer
+                      ? "bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15"
+                      : "bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 hover:scale-105 shadow-md shadow-emerald-500/20"
+                  }`}
+                >
+                  <span>{showAnswer ? "Ẩn đáp số" : "👁️ Mở khóa đối chiếu kết quả"}</span>
+                </button>
+              </div>
+            )}
 
             {/* Encouragement Footer */}
             {solution.encouragement && (

@@ -1,4 +1,4 @@
-// Web Audio API Synthesizer & Natural Vietnamese Voice Engine for Educational Feedback
+// Web Audio API Synthesizer & Standard Natural Vietnamese Voice Engine for Educational Feedback
 
 class SoundManager {
   private audioCtx: AudioContext | null = null;
@@ -13,7 +13,7 @@ class SoundManager {
     this.initVoices();
     if (typeof window !== "undefined") {
       // Preload standard audio phrases after initial page load
-      setTimeout(() => this.preloadCommonPhrases(), 1000);
+      setTimeout(() => this.preloadCommonPhrases(), 800);
     }
   }
 
@@ -29,15 +29,35 @@ class SoundManager {
     }
   }
 
-  // Preload essential Vietnamese voice clip for 0-latency playback
+  // Preload essential high-quality Vietnamese voice clips for 0-latency playback
   public preloadCommonPhrases() {
     if (this.preloaded || typeof window === "undefined") return;
     this.preloaded = true;
 
-    const audio = new Audio("/sounds/chinh_xac.mp3");
-    audio.preload = "auto";
-    this.audioCache.set("Chính xác!", audio);
-    this.audioCache.set("Chính xác", audio);
+    const clips: Record<string, string> = {
+      "chính xác": "/sounds/chinh_xac.mp3",
+      "chính xác!": "/sounds/chinh_xac.mp3",
+      "chính xác rồi": "/sounds/chinh_xac_roi.mp3",
+      "chính xác rồi!": "/sounds/chinh_xac_roi.mp3",
+      "đúng rồi": "/sounds/dung_roi.mp3",
+      "đúng rồi!": "/sounds/dung_roi.mp3",
+      "rất giỏi": "/sounds/rat_gioi.mp3",
+      "rất giỏi!": "/sounds/rat_gioi.mp3",
+      "rất xuất sắc": "/sounds/xuat_sac.mp3",
+      "rất xuất sắc!": "/sounds/xuat_sac.mp3",
+      "chưa đúng": "/sounds/thu_lai.mp3",
+      "thử lại": "/sounds/thu_lai.mp3",
+    };
+
+    Object.entries(clips).forEach(([phrase, path]) => {
+      try {
+        const audio = new Audio(path);
+        audio.preload = "auto";
+        this.audioCache.set(phrase.toLowerCase(), audio);
+      } catch (e) {
+        // ignore
+      }
+    });
   }
 
   private getAudioContext(): AudioContext {
@@ -181,43 +201,46 @@ class SoundManager {
     }
   }
 
-  // Natural Vietnamese Speech Output with local audio priority and server fallback
+  // Natural Vietnamese Speech Output with standard pronunciation, preloaded audio and server TTS
   public async speakText(text: string): Promise<boolean> {
     if (!this.speechEnabled || !text) return false;
 
-    const cleanText = text.trim();
+    // Clean text: strip emojis, markdown symbols, and unnecessary punctuations for crisp pronunciation
+    const cleanText = text
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
+      .replace(/[➕➖✖️➗📐⚖️🧩💎⚡🎯🚤🤝🌿🌟💯🛑🧮💡🎉🍬🍪🚀🍊🍎⭐🎈🔊👏!?,.]/g, " ")
+      .replace(/[\n\r\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
     if (!cleanText) return false;
 
-    // 1. If text is 'Chính xác' or 'Chính xác!', play local high quality audio directly
-    if (cleanText === "Chính xác!" || cleanText === "Chính xác") {
+    const lower = cleanText.toLowerCase();
+
+    // 1. Check if we have an ultra-high clarity preloaded Vietnamese audio file
+    const preloadedAudio = this.audioCache.get(lower);
+    if (preloadedAudio) {
       try {
         if (this.currentPlayingAudio) {
           this.currentPlayingAudio.pause();
           this.currentPlayingAudio.currentTime = 0;
         }
 
-        let audio = this.audioCache.get("Chính xác!");
-        if (!audio) {
-          audio = new Audio("/sounds/chinh_xac.mp3");
-          this.audioCache.set("Chính xác!", audio);
-        } else {
-          audio.currentTime = 0;
-        }
+        preloadedAudio.currentTime = 0;
+        this.currentPlayingAudio = preloadedAudio;
+        preloadedAudio.volume = 1.0;
 
-        this.currentPlayingAudio = audio;
-        audio.volume = 1.0;
-
-        const playPromise = audio.play();
+        const playPromise = preloadedAudio.play();
         if (playPromise !== undefined) {
           await playPromise;
           return true;
         }
       } catch (e) {
-        console.log("Local audio play fallback:", e);
+        console.log("Preloaded audio play fallback:", e);
       }
     }
 
-    // 2. Try playing via Server-Side TTS endpoint
+    // 2. Play via Server-Side standard Vietnamese TTS endpoint
     try {
       if (this.currentPlayingAudio) {
         this.currentPlayingAudio.pause();
@@ -226,7 +249,7 @@ class SoundManager {
 
       let audio = this.audioCache.get(cleanText);
       if (!audio) {
-        const ttsUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+        const ttsUrl = `/api/tts?text=${encodeURIComponent(cleanText.slice(0, 180))}`;
         audio = new Audio(ttsUrl);
         this.audioCache.set(cleanText, audio);
       } else {
@@ -245,7 +268,7 @@ class SoundManager {
       console.log("Server TTS fallback triggered for:", cleanText);
     }
 
-    // 3. Fallback to Browser Web Speech API ONLY if authentic Vietnamese voice exists on OS
+    // 3. Fallback to Browser Web Speech API with standard Vietnamese Voice
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         if (this.voices.length === 0) {
@@ -254,26 +277,27 @@ class SoundManager {
 
         const viVoice = this.voices.find(
           (v) =>
-            v.lang.toLowerCase().includes("vi") ||
+            v.lang.toLowerCase().startsWith("vi") ||
             v.name.toLowerCase().includes("vietnam") ||
             v.name.toLowerCase().includes("tiếng việt") ||
             v.name.toLowerCase().includes("hoaimy") ||
             v.name.toLowerCase().includes("namminh") ||
             v.name.toLowerCase().includes("linh") ||
-            v.name.toLowerCase().includes("an")
+            v.name.toLowerCase().includes("an") ||
+            v.name.toLowerCase().includes("mai")
         );
 
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(cleanText);
         if (viVoice) {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(cleanText);
           utterance.voice = viVoice;
-          utterance.lang = "vi-VN";
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
-          utterance.volume = 1.0;
-          window.speechSynthesis.speak(utterance);
-          return true;
         }
+        utterance.lang = "vi-VN";
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+        return true;
       } catch (err) {
         console.warn("Web Speech synthesis error:", err);
       }
@@ -282,21 +306,28 @@ class SoundManager {
     return false;
   }
 
-  // Combined Correct Feedback (Plays Chime first, then cleanly speaks "Chính xác!")
+  // Combined Correct Feedback (Plays Chime first, then cleanly speaks standard "Chính xác!")
   public playCorrectFeedback(correctAnswer?: number, streak: number = 0) {
     if (!this.soundEnabled) return;
 
     // 1. Play pleasant melodic bell
     this.playSuccessChime();
 
-    // 2. Purely speak standard Vietnamese "Chính xác!"
+    // 2. Purely speak standard natural Vietnamese "Chính xác!" or praise
     if (this.speechEnabled) {
       setTimeout(() => {
-        this.speakText("Chính xác!");
-      }, 150);
+        let phrase = "chính xác";
+        if (streak >= 5) {
+          phrase = "rất xuất sắc";
+        } else if (streak >= 3) {
+          phrase = "rất giỏi";
+        }
+        this.speakText(phrase);
+      }, 140);
     }
   }
 }
 
 export const soundManager = new SoundManager();
+
 

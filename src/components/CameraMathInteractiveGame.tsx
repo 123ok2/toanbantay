@@ -335,14 +335,17 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
 
   // Hold time detection for live finger camera detection to prevent accidental triggers
   const lastDetectedFingerRef = useRef<number | null>(null);
-  const fingerHoldTimeRef = useRef<number>(0);
+  const fingerHoldStartRef = useRef<number>(0);
+  const [holdProgress, setHoldProgress] = useState<number>(0);
+  const REQUIRED_HOLD_TIME_MS = 900; // Require holding gesture steady for 900ms before accepting answer
 
   // Handle Correct Answer Event
   const handleCorrectAnswer = useCallback(() => {
     if (isLockedRef.current || feedbackStateRef.current !== "idle") return;
     isLockedRef.current = true;
-    fingerHoldTimeRef.current = 0;
+    fingerHoldStartRef.current = 0;
     lastDetectedFingerRef.current = null;
+    setHoldProgress(0);
 
     const q = currentQRef.current;
     soundManager.playCorrectFeedback(q.correctAnswer, streak);
@@ -365,12 +368,13 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
       isLockedRef.current = false;
       setFeedbackState("idle");
       setCurrentQuestionIndex((prev) => (prev + 1) % filteredQuestions.length);
-      fingerHoldTimeRef.current = 0;
+      fingerHoldStartRef.current = 0;
       lastDetectedFingerRef.current = null;
+      setHoldProgress(0);
     }, 2500);
   }, [streak, filteredQuestions.length]);
 
-  // Monitor currentResult from camera
+  // Monitor currentResult from camera with stability checking
   const resultTimestamp = currentResult?.timestamp;
   const isHandDetected = currentResult?.handDetected;
   const detectedFingerCount = currentResult?.fingerCount ?? -1;
@@ -378,6 +382,8 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
 
   useEffect(() => {
     if (!isStreaming || feedbackStateRef.current !== "idle" || isLockedRef.current || !isHandDetected) {
+      fingerHoldStartRef.current = 0;
+      setHoldProgress(0);
       return;
     }
 
@@ -397,8 +403,27 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
       (targetAnswer === 8 && (detectedGesture === "love_you" || detectedGesture === "number_8")) ||
       (targetAnswer === 10 && detectedGesture === "number_10");
 
-    if (isDirectCountMatch || isSpecialGestureMatch) {
-      handleCorrectAnswer();
+    const isMatchingAnswer = isDirectCountMatch || isSpecialGestureMatch;
+
+    const now = Date.now();
+    if (isMatchingAnswer) {
+      if (lastDetectedFingerRef.current !== detectedFingerCount) {
+        lastDetectedFingerRef.current = detectedFingerCount;
+        fingerHoldStartRef.current = now;
+        setHoldProgress(15);
+      } else {
+        const holdDuration = now - fingerHoldStartRef.current;
+        const progress = Math.min(100, Math.round((holdDuration / REQUIRED_HOLD_TIME_MS) * 100));
+        setHoldProgress(progress);
+
+        if (progress >= 100) {
+          handleCorrectAnswer();
+        }
+      }
+    } else {
+      lastDetectedFingerRef.current = detectedFingerCount;
+      fingerHoldStartRef.current = 0;
+      setHoldProgress(0);
     }
   }, [
     resultTimestamp,
@@ -431,8 +456,9 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
     if (autoNextTimer) clearTimeout(autoNextTimer);
     setFeedbackState("idle");
     setCurrentQuestionIndex((prev) => (prev + 1) % filteredQuestions.length);
-    fingerHoldTimeRef.current = 0;
+    fingerHoldStartRef.current = 0;
     lastDetectedFingerRef.current = null;
+    setHoldProgress(0);
   };
 
   const handleResetGame = () => {
@@ -602,22 +628,39 @@ export const CameraMathInteractiveGame: React.FC<CameraMathInteractiveGameProps>
           </div>
         )}
 
-        {/* Interactive Instruction Banner & Quick Buttons */}
-        <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between flex-wrap gap-1.5 text-[10px] sm:text-xs text-indigo-200">
-          <div className="flex items-center gap-1">
-            <Hand className="w-3.5 h-3.5 text-amber-300 animate-pulse shrink-0" />
-            <span>
-              Giơ đúng <strong className="text-amber-300 text-xs sm:text-sm font-black">{currentQ.correctAnswer} ngón</strong> hoặc bấm:
-            </span>
+        {/* Interactive Instruction Banner & Quick Buttons (Pedagogical Guidance Without Leaking Answer) */}
+        <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-1.5 text-[10px] sm:text-xs text-indigo-200">
+          <div className="flex items-center justify-between flex-wrap gap-1.5">
+            <div className="flex items-center gap-1 text-amber-300 font-bold">
+              <Hand className="w-3.5 h-3.5 animate-pulse shrink-0" />
+              <span>
+                💡 Hướng dẫn: Tính nhẩm và <strong className="text-white underline">GIỮ YÊN bàn tay</strong> trước camera hoặc chạm số:
+              </span>
+            </div>
+
+            <button
+              onClick={handleNextQuestion}
+              className="text-[10px] sm:text-xs font-bold text-indigo-200 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-xl border border-white/10 cursor-pointer shrink-0 transition-all min-h-[30px]"
+            >
+              <span>Đổi câu</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
           </div>
 
-          <button
-            onClick={handleNextQuestion}
-            className="text-[10px] sm:text-xs font-bold text-indigo-200 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-xl border border-white/10 cursor-pointer shrink-0 transition-all min-h-[30px]"
-          >
-            <span>Đổi câu</span>
-            <ArrowRight className="w-3 h-3" />
-          </button>
+          {/* Realtime Hold Progress on Screen */}
+          {isStreaming && isHandDetected && holdProgress > 0 && feedbackState === "idle" && (
+            <div className="w-full bg-slate-950/80 p-1.5 rounded-xl border border-indigo-400/30 flex items-center gap-2">
+              <span className="text-[10px] font-extrabold text-emerald-300 shrink-0">
+                🎯 Giữ yên: {holdProgress}%
+              </span>
+              <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 rounded-full transition-all duration-75 ease-out"
+                  style={{ width: `${holdProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quick Answer Buttons (Mobile Touch Grid 0 to 10) */}

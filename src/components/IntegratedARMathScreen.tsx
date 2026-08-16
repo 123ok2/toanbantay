@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import { classifyMultipleHands } from "../utils/gestureClassifier";
+import { classifyMultipleHands, analyzeSingleHandFingers } from "../utils/gestureClassifier";
 import { GESTURE_DICTIONARY } from "../utils/gestureDictionary";
 import { RecognitionResult } from "../types";
 import { soundManager } from "../utils/soundEffects";
@@ -277,8 +277,17 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
   const [isTestingSound, setIsTestingSound] = useState<boolean>(false);
   const [activeMode, setActiveMode] = useState<"math" | "free">("math");
 
-  // Recognition state
+  // Recognition state & Hand Stability Tracking
   const [currentResult, setCurrentResult] = useState<RecognitionResult | null>(null);
+  const [holdProgress, setHoldProgress] = useState<number>(0);
+  const [isHandMoving, setIsHandMoving] = useState<boolean>(false);
+
+  // Hand stability refs
+  const prevHandPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const stableFingerCountRef = useRef<number | null>(null);
+  const stableHoldStartRef = useRef<number>(0);
+  const REQUIRED_HOLD_TIME_MS = 950; // 950ms stable pose hold required before validating answer
+  const MOTION_THRESHOLD = 0.035; // Normalized displacement threshold for hand movement detection
 
   // Filter questions based on grade
   const filteredQuestions =
@@ -480,7 +489,18 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
           results.landmarks.forEach((handLandmarks, handIdx) => {
             const handColor = handIdx === 0 ? "#10B981" : "#F59E0B";
 
-            // Draw connecting lines
+            // Classify single hand fingers first for accurate visual feedback
+            const fingerInfo = analyzeSingleHandFingers(handLandmarks as any);
+            const { thumb, index, middle, ring, pinky } = fingerInfo.extendedFingers;
+            const extendedMap: Record<number, boolean> = {
+              4: thumb,
+              8: index,
+              12: middle,
+              16: ring,
+              20: pinky,
+            };
+
+            // Draw connecting lines with dynamic glow
             ctx.strokeStyle = handColor;
             ctx.lineWidth = 3.5;
             ctx.shadowColor = handColor;
@@ -497,23 +517,39 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
               }
             });
 
-            // Draw joint nodes
+            // Draw joint nodes with clear differentiation between extended and folded fingers
             handLandmarks.forEach((pt, ptIdx) => {
               const isTip = [4, 8, 12, 16, 20].includes(ptIdx);
+              const isExtendedTip = isTip && extendedMap[ptIdx];
+
               ctx.beginPath();
               ctx.arc(
                 pt.x * canvas.width,
                 pt.y * canvas.height,
-                isTip ? 6 : 3.5,
+                isTip ? (isExtendedTip ? 7 : 4.5) : 3.5,
                 0,
                 2 * Math.PI
               );
-              ctx.fillStyle = isTip ? "#FBBF24" : "#FFFFFF";
-              ctx.shadowColor = isTip ? "#F59E0B" : "transparent";
-              ctx.shadowBlur = isTip ? 8 : 0;
+
+              if (isTip) {
+                if (isExtendedTip) {
+                  ctx.fillStyle = "#FBBF24"; // Vàng sáng phát quang cho ngón duỗi
+                  ctx.shadowColor = "#F59E0B";
+                  ctx.shadowBlur = 10;
+                } else {
+                  ctx.fillStyle = "#64748B"; // Xám mờ cho ngón gập/nắm
+                  ctx.shadowColor = "transparent";
+                  ctx.shadowBlur = 0;
+                }
+              } else {
+                ctx.fillStyle = "#FFFFFF";
+                ctx.shadowColor = "transparent";
+                ctx.shadowBlur = 0;
+              }
+
               ctx.fill();
-              ctx.strokeStyle = handColor;
-              ctx.lineWidth = 1.5;
+              ctx.strokeStyle = isExtendedTip ? "#FFFFFF" : handColor;
+              ctx.lineWidth = isExtendedTip ? 2 : 1.2;
               ctx.stroke();
             });
           });
@@ -523,15 +559,79 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
           setCurrentResult(classified);
           if (onGestureDetected) onGestureDetected(classified);
 
-          // If in Math mode and fingers match the answer -> trigger answer
-          if (activeMode === "math" && classified.handDetected && classified.fingerCount > 0) {
-            const detectedNumber = classified.fingerCount;
-            if (detectedNumber === currentQ.correctAnswer && feedbackState === "idle") {
-              handleValidateAnswer(detectedNumber);
+          // === YÊU CẦU 3: KIỂM TRA ĐỘ ỔN ĐỊNH BÀN TAY (HAND STABILITY & MOTION FILTER) ===
+          // Khi bàn tay chưa giữ nguyên, còn chuyển động lung tung -> CHỈ NHẬN DIỆN BÀN TAY, CHƯA CÔNG NHẬN ĐÁP ÁN.
+          // Chỉ khi bàn tay đứng yên và giữ nguyên tư thế đủ thời gian -> Mới chính thức công nhận kết quả.
+          const nowMs = Date.now();
+          const firstHand = results.landmarks[0];
+          let handIsMoving = false;
+
+          if (firstHand && firstHand.length >= 10) {
+            const currentPos = {
+              x: (firstHand[0].x + firstHand[9].x) / 2,
+              y: (firstHand[0].y + firstHand[9].y) / 2,
+              time: nowMs,
+            };
+
+            if (prevHandPosRef.current) {
+              const dt = Math.max(16, currentPos.time - prevHandPosRef.current.time);
+              const dx = currentPos.x - prevHandPosRef.current.x;
+              const dy = currentPos.y - prevHandPosRef.current.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              // Calculate normalized velocity
+              const velocity = (dist / dt) * 1000;
+
+              if (velocity > 0.45 || dist > MOTION_THRESHOLD) {
+                handIsMoving = true;
+              }
             }
+            prevHandPosRef.current = currentPos;
+          }
+
+          setIsHandMoving(handIsMoving);
+
+          if (activeMode === "math" && classified.handDetected && classified.fingerCount >= 0) {
+            const detectedNumber = classified.fingerCount;
+
+            // If hand is shaking or moving around rapidly, or finger count just changed -> reset hold timer
+            if (handIsMoving) {
+              stableHoldStartRef.current = 0;
+              setHoldProgress(0);
+            } else if (stableFingerCountRef.current !== detectedNumber) {
+              // Finger count just changed, restart stability timer
+              stableFingerCountRef.current = detectedNumber;
+              stableHoldStartRef.current = nowMs;
+              setHoldProgress(10);
+            } else {
+              // Hand is stationary and fingers remain steady -> accumulate hold progress
+              if (stableHoldStartRef.current === 0) {
+                stableHoldStartRef.current = nowMs;
+              }
+              const holdDuration = nowMs - stableHoldStartRef.current;
+              const progress = Math.min(100, Math.round((holdDuration / REQUIRED_HOLD_TIME_MS) * 100));
+              setHoldProgress(progress);
+
+              // ONLY ACCEPT ANSWER WHEN HAND HAS BEEN HELD COMPLETELY STEADY
+              if (progress >= 100) {
+                if (detectedNumber === currentQ.correctAnswer && feedbackState === "idle") {
+                  handleValidateAnswer(detectedNumber);
+                  stableHoldStartRef.current = 0;
+                  setHoldProgress(0);
+                }
+              }
+            }
+          } else {
+            stableFingerCountRef.current = null;
+            stableHoldStartRef.current = 0;
+            setHoldProgress(0);
           }
         } else {
           setCurrentResult(null);
+          prevHandPosRef.current = null;
+          stableFingerCountRef.current = null;
+          stableHoldStartRef.current = 0;
+          setHoldProgress(0);
+          setIsHandMoving(false);
         }
       } catch (err) {
         console.error("Lỗi phân tích khung hình MediaPipe:", err);
@@ -783,35 +883,65 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
               </div>
             </div>
 
-            {/* CENTER AR EVALUATION BANNER (Instant Live Feedback on Answer) */}
+            {/* CENTER AR EVALUATION & STABILITY HOLD BANNER */}
             {activeMode === "math" && (
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[92%] sm:w-auto max-w-md">
                 {feedbackState === "correct" ? (
                   <div className="bg-emerald-500/90 text-slate-950 font-black px-4 py-2 rounded-2xl shadow-2xl border border-emerald-300 flex items-center justify-center gap-2 animate-bounce">
                     <CheckCircle2 className="w-5 h-5 text-slate-950 shrink-0" />
                     <span className="text-xs sm:text-sm">
-                      CHÍNH XÁC: {currentQ.correctAnswer} NGÓN TAY! 🎉 (+100đ)
+                      CHÍNH XÁC: KẾT QUẢ LÀ {currentQ.correctAnswer}! 🎉 (+100đ)
                     </span>
                   </div>
                 ) : feedbackState === "incorrect" ? (
                   <div className="bg-rose-500/90 text-white font-black px-4 py-2 rounded-2xl shadow-2xl border border-rose-300 flex items-center justify-center gap-2 animate-pulse">
                     <XCircle className="w-5 h-5 text-white shrink-0" />
                     <span className="text-xs sm:text-sm">
-                      Chưa đúng rồi! Đếm lại số ngón nhé!
+                      Chưa đúng rồi! Hãy tính nháp và đếm lại số ngón nhé!
                     </span>
                   </div>
                 ) : (
-                  <div className="bg-slate-950/85 backdrop-blur-md text-slate-200 border border-white/20 px-3 py-1.5 rounded-2xl shadow-xl flex items-center justify-between gap-2 text-center text-[11px] sm:text-xs">
-                    <div className="flex items-center gap-1.5 text-amber-300 font-bold">
-                      <Hand className="w-3.5 h-3.5 animate-pulse" />
-                      <span>
-                        Giơ <strong className="text-white text-xs sm:text-sm underline">{currentQ.correctAnswer} ngón tay</strong> trước camera
-                      </span>
+                  <div className="bg-slate-950/90 backdrop-blur-md text-slate-200 border border-indigo-400/30 px-3 py-2 rounded-2xl shadow-xl flex flex-col gap-1.5 text-center text-[11px] sm:text-xs">
+                    {/* Guidance Prompt - Không lộ đáp án */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                        <Hand className="w-3.5 h-3.5 animate-pulse" />
+                        <span>💡 Hướng dẫn: Tính nhẩm và <strong className="text-white underline">GIỮ YÊN bàn tay</strong> trước camera</span>
+                      </div>
+                      {currentResult && currentResult.handDetected && (
+                        <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-400/30 shrink-0 font-mono">
+                          {currentResult.fingerCount} ngón
+                        </span>
+                      )}
                     </div>
+
+                    {/* Realtime Hand Stability Status Bar */}
                     {currentResult && currentResult.handDetected && (
-                      <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-400/30">
-                        Đang giơ: {currentResult.fingerCount} ngón
-                      </span>
+                      <div className="w-full">
+                        {isHandMoving ? (
+                          <div className="flex items-center justify-center gap-1 text-[10px] text-amber-300 font-bold bg-amber-500/15 py-1 px-2 rounded-lg border border-amber-400/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                            <span>Bàn tay đang di chuyển (Giữ yên để nộp bài)...</span>
+                          </div>
+                        ) : holdProgress > 0 ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[10px] font-extrabold text-emerald-300 px-1">
+                              <span>🎯 Giữ yên ổn định để nộp bài:</span>
+                              <span>{holdProgress}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-white/10">
+                              <div
+                                className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-75 ease-out rounded-full"
+                                style={{ width: `${holdProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-300 italic">
+                            Giữ cố định vị trí bàn tay khoảng 1 giây để chốt đáp án
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

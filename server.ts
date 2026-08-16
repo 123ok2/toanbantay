@@ -32,15 +32,27 @@ app.get("/api/health", (_req, res) => {
 // Natural Vietnamese Text-To-Speech (TTS) Proxy Endpoint
 app.get("/api/tts", async (req, res) => {
   try {
-    const text = (req.query.text as string) || "Chính xác";
-    const cleanText = text.trim().slice(0, 200);
+    const rawText = (req.query.text as string) || "Chính xác";
+    // Clean text: remove emojis, special symbols, and math brackets for natural Vietnamese speech
+    const cleanText = rawText
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
+      .replace(/[➕➖✖️➗📐⚖️🧩💎⚡🎯🚤🤝🌿🌟💯🛑🧮💡🎉🍬🍪🚀🍊🍎⭐🎈]/g, "")
+      .replace(/[\n\r\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 200);
+
+    if (!cleanText) {
+      return res.status(400).json({ error: "Empty text for TTS" });
+    }
+
     const encoded = encodeURIComponent(cleanText);
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=vi&client=tw-ob`;
 
     const response = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
       },
     });
 
@@ -58,7 +70,7 @@ app.get("/api/tts", async (req, res) => {
   }
 });
 
-// Gemini AI Math Tutor endpoint for solving & explaining math problems
+// Gemini AI Math Tutor endpoint - CHỈ ĐƯA HƯỚNG DẪN & GỢI Ý TƯ DUY, KHÔNG ĐƯA THẲNG ĐÁP ÁN
 app.post("/api/solve-math", async (req, res) => {
   try {
     const { problemText, gradeLevel } = req.body;
@@ -68,112 +80,102 @@ app.post("/api/solve-math", async (req, res) => {
 
     const ai = getGeminiClient();
     if (!ai) {
-      // Intelligent offline template solver for basic elementary and middle school problems
-      let steps: string[] = [];
-      let finalAnswer = "Xem kết quả bài giải";
-      let visualAnalogy = "📐 Áp dụng quy tắc biến đổi và tính toán từng bước";
-      let explanation = `Để giải bài toán "${problemText}", ta tiến hành phân tích các dữ kiện đã cho, áp dụng công thức tương ứng theo chương trình ${gradeLevel || "THCS"} và tính toán cẩn thận.`;
-      let encouragement = "Bạn đã tư duy rất tốt! Hãy tiếp tục luyện tập các dạng bài tiếp theo nhé! 🌟";
+      // Intelligent offline guidance template (pedagogical guidance without giving direct answer)
+      let guidingSteps: string[] = [];
+      let thinkingPrompt = "Theo em, sau khi thực hiện các bước hướng dẫn trên, kết quả cuối cùng là bao nhiêu?";
+      let visualAnalogy = "📐 Áp dụng quy tắc biến đổi và gợi ý phương pháp giải";
+      let explanation = `Để giải bài toán "${problemText}", em hãy thực hiện theo các bước hướng dẫn dưới đây để tự tìm ra kết quả chính xác nhé!`;
+      let hiddenAnswer = "Xem gợi ý kết quả sau khi tự làm";
+      let encouragement = "Em hãy tự tin tính nháp từng bước theo hướng dẫn nhé! Tư duy độc lập là chìa khóa học giỏi Toán! 🌟";
 
       const lower = problemText.toLowerCase();
 
-      // Check for simple Linear Equation (e.g., 3x - 15 = 45 or 2x + 4 = 10 or 3(x - 2) = 2x + 7)
       if (lower.includes("3x - 15 = 45")) {
-        finalAnswer = "x = 20";
-        steps = [
-          "Bước 1: Chuyển số hạng tự do (-15) sang vế phải đổi dấu thành (+15): 3x = 45 + 15",
-          "Bước 2: Thực hiện phép cộng: 3x = 60",
-          "Bước 3: Chia cả hai vế cho hệ số 3: x = 60 / 3 = 20",
+        guidingSteps = [
+          "Bước 1 (Xác định dạng toán): Đây là bài toán tìm x trong phương trình bậc nhất một ẩn.",
+          "Bước 2 (Quy tắc chuyển vế): Chuyển số hạng tự do (-15) từ vế trái sang vế phải và đổi dấu thành (+15). Khi đó vế phải sẽ thành: 45 + 15.",
+          "Bước 3 (Rút gọn): Tính tổng 45 + 15 để tìm giá trị của 3x.",
+          "Bước 4 (Tìm x): Lấy kết quả vừa tìm được chia cho hệ số 3 để ra giá trị của x.",
         ];
-        visualAnalogy = "⚖️ 3x = 45 + 15 = 60 ➡️ x = 20";
-        explanation = "Quy tắc chuyển vế: Khi chuyển một số hạng từ vế này sang vế kia của một đẳng thức, ta phải đổi dấu số hạng đó. Kết quả x = 20.";
+        thinkingPrompt = "Em hãy tính: 45 + 15 bằng bao nhiêu, rồi lấy số đó chia cho 3 để tìm x nhé!";
+        visualAnalogy = "⚖️ Gợi ý: 3x - 15 = 45 ➡️ 3x = 45 + 15 ➡️ x = (Tổng vừa tính) : 3";
+        hiddenAnswer = "x = 20";
+        explanation = "Hướng dẫn: Áp dụng quy tắc chuyển vế đổi dấu: khi chuyển một số hạng từ vế này sang vế kia của đẳng thức, ta phải đổi dấu của số hạng đó. Sau đó chia cả 2 vế cho 3.";
       } else if (lower.includes("ucln") || lower.includes("ước chung") || lower.includes("bcnn")) {
-        finalAnswer = "ƯCLN = 12, BCNN = 72";
-        steps = [
-          "Bước 1: Phân tích ra thừa số nguyên tố: 24 = 2³ . 3 và 36 = 2² . 3²",
-          "Bước 2: Lập tích các thừa số nguyên tố chung với số mũ nhỏ nhất: ƯCLN(24, 36) = 2² . 3 = 12",
-          "Bước 3: Lập tích các thừa số nguyên tố chung và riêng với số mũ lớn nhất: BCNN(24, 36) = 2³ . 3² = 72",
+        guidingSteps = [
+          "Bước 1 (Phân tích thừa số nguyên tố): Phân tích 24 và 36 ra tích các thừa số nguyên tố: 24 = 2³ . 3 và 36 = 2² . 3².",
+          "Bước 2 (Tìm ƯCLN): Chọn ra các thừa số nguyên tố chung với số mũ nhỏ nhất, rồi lập tích của chúng.",
+          "Bước 3 (Tìm BCNN): Chọn ra các thừa số nguyên tố chung và riêng với số mũ lớn nhất, rồi lập tích của chúng.",
         ];
-        visualAnalogy = "🧩 24 = 2³ . 3 | 36 = 2² . 3² ➡️ ƯCLN = 12, BCNN = 72";
-        explanation = "Quy tắc tìm ƯCLN: Chọn các thừa số chung với số mũ bé nhất. Quy tắc BCNN: Chọn các thừa số chung & riêng với số mũ lớn nhất.";
+        thinkingPrompt = "Em hãy nhân tích: (2² x 3) để tìm ƯCLN và nhân tích (2³ x 3²) để tìm BCNN nhé!";
+        visualAnalogy = "🧩 24 = 2³ . 3 | 36 = 2² . 3² ➡️ ƯCLN: mũ nhỏ nhất | BCNN: mũ lớn nhất";
+        hiddenAnswer = "ƯCLN(24, 36) = 12; BCNN(24, 36) = 72";
+        explanation = "Quy tắc tìm ƯCLN: Lấy các thừa số chung với số mũ nhỏ nhất. Quy tắc tìm BCNN: Lấy các thừa số chung và riêng với số mũ lớn nhất.";
       } else if (lower.includes("pythagoras") || lower.includes("cạnh huyền") || lower.includes("ab = 6")) {
-        finalAnswer = "BC = 10 cm";
-        steps = [
-          "Bước 1: Áp dụng định lý Pythagoras cho tam giác vuông ABC tại A: BC² = AB² + AC²",
-          "Bước 2: Thay số: BC² = 6² + 8² = 36 + 64 = 100",
-          "Bước 3: Tính căn bậc hai: BC = √100 = 10 (cm)",
+        guidingSteps = [
+          "Bước 1 (Định lý Pythagoras): Trong tam giác vuông ABC tại A, bình phương cạnh huyền bằng tổng bình phương hai cạnh góc vuông: BC² = AB² + AC².",
+          "Bước 2 (Thay số): Tính AB² = 6² = 36 và AC² = 8² = 64.",
+          "Bước 3 (Tính tổng): Cộng hai giá trị: BC² = 36 + 64.",
+          "Bước 4 (Tìm cạnh huyền): Lấy căn bậc hai của tổng vừa tính để ra độ dài cạnh BC.",
         ];
-        visualAnalogy = "📐 BC² = 6² + 8² = 36 + 64 = 100 ➡️ BC = 10cm";
-        explanation = "Định lý Pythagoras phát biểu: Trong một tam giác vuông, bình phương cạnh huyền bằng tổng bình phương hai cạnh góc vuông.";
+        thinkingPrompt = "Em hãy cộng 36 + 64 = ?, sau đó tính căn bậc hai của số đó để tìm độ dài BC nhé!";
+        visualAnalogy = "📐 BC² = 6² + 8² = 36 + 64 ➡️ BC = √(tổng)";
+        hiddenAnswer = "BC = 10 cm";
+        explanation = "Định lý Pythagoras phát biểu: Trong tam giác vuông, bình phương cạnh huyền bằng tổng bình phương hai cạnh góc vuông.";
       } else if (lower.includes("hệ phương trình") || (lower.includes("2x + y = 7") && lower.includes("x - y = 2"))) {
-        finalAnswer = "(x; y) = (3; 1)";
-        steps = [
-          "Bước 1: Cộng hai phương trình theo vế để khử y: (2x + y) + (x - y) = 7 + 2",
-          "Bước 2: Rút gọn được: 3x = 9 ➡️ x = 3",
-          "Bước 3: Thay x = 3 vào phương trình x - y = 2 ➡️ 3 - y = 2 ➡️ y = 1",
+        guidingSteps = [
+          "Bước 1 (Nhận xét hệ số): Ta thấy biến y ở hai phương trình có hệ số đối nhau (+1 và -1).",
+          "Bước 2 (Cộng đại số): Cộng từng vế của hai phương trình để khử biến y: (2x + x) + (y - y) = 7 + 2.",
+          "Bước 3 (Tìm x): Giải phương trình thu được: 3x = 9 để tìm x.",
+          "Bước 4 (Tìm y): Thay giá trị x vừa tìm được vào phương trình x - y = 2 để tìm y.",
         ];
-        visualAnalogy = "🤝 3x = 9 ➡️ x = 3; y = 3 - 2 = 1 ➡️ Nghiệm (3; 1)";
-        explanation = "Phương pháp cộng đại số: Cộng từng vế của hai phương trình để triệt tiêu biến y, sau đó giải phương trình bậc nhất 1 ẩn thu được x rồi thế tìm y.";
-      } else if (lower.includes("x² - 5x + 6 = 0") || lower.includes("vi-ét")) {
-        finalAnswer = "x₁ = 2, x₂ = 3";
-        steps = [
-          "Bước 1: Xác định hệ số: a = 1, b = -5, c = 6",
-          "Bước 2: Tính biệt thức Delta: Δ = b² - 4ac = (-5)² - 4(1)(6) = 25 - 24 = 1 > 0",
-          "Bước 3: Phương trình có 2 nghiệm phân biệt: x₁ = (5 + 1)/2 = 3; x₂ = (5 - 1)/2 = 2",
-        ];
-        visualAnalogy = "🌟 Δ = 1 > 0 ➡️ x₁ = 3, x₂ = 2 (Tổng = 5, Tích = 6)";
-        explanation = "Có thể phân tích thành nhân tử: (x - 2)(x - 3) = 0 hoặc dùng công thức nghiệm Delta để tìm được hai nghiệm x = 2 và x = 3.";
-      } else if (lower.includes("√49") || lower.includes("căn bậc hai")) {
-        finalAnswer = "A = 10";
-        steps = [
-          "Bước 1: Tính từng căn bậc hai số học: √49 = 7; √64 = 8; √25 = 5",
-          "Bước 2: Thay vào biểu thức: A = 7 + 8 - 5",
-          "Bước 3: Thực hiện phép tính từ trái sang phải: A = 15 - 5 = 10",
-        ];
-        visualAnalogy = "💎 √49 = 7, √64 = 8, √25 = 5 ➡️ 7 + 8 - 5 = 10";
-        explanation = "Căn bậc hai số học của một số a không âm là số x không âm sao cho x² = a.";
-      } else if (lower.includes("(x + 3)²") || lower.includes("hằng đẳng thức")) {
-        finalAnswer = "x + 9";
-        steps = [
-          "Bước 1: Khai triển hằng đẳng thức (x + 3)² = x² + 2.3.x + 3² = x² + 6x + 9",
-          "Bước 2: Khai triển tích: -x(x + 5) = -x² - 5x",
-          "Bước 3: Thu gọn các đơn thức đồng dạng: (x² - x²) + (6x - 5x) + 9 = x + 9",
-        ];
-        visualAnalogy = "⚡ (x² + 6x + 9) - (x² + 5x) = x + 9";
-        explanation = "Áp dụng hằng đẳng thức bình phương của một tổng: (A + B)² = A² + 2AB + B² rồi thu gọn các hạng tử đồng dạng.";
+        thinkingPrompt = "Từ 3x = 9, em tính ra x bằng bao nhiêu? Sau đó thay vào x - y = 2 để tìm y nhé!";
+        visualAnalogy = "🤝 (2x + y) + (x - y) = 7 + 2 ➡️ 3x = 9 ➡️ Tìm x rồi thế vào tìm y";
+        hiddenAnswer = "x = 3; y = 1 (Nghiệm (3; 1))";
+        explanation = "Phương pháp cộng đại số: Khi các hệ số của cùng một biến đối nhau, ta cộng từng vế của hai phương trình để triệt tiêu biến đó.";
       } else {
-        steps = [
-          "Bước 1: Đọc kĩ đề bài, xác định giả thiết và kết luận.",
-          "Bước 2: Thiết lập phương trình hoặc biểu thức toán học tương ứng.",
-          "Bước 3: Thực hiện tính toán từng bước và kết luận đáp số.",
+        guidingSteps = [
+          "Bước 1: Đọc kỹ đề bài, xác định các dữ kiện đã cho và đại lượng cần tìm.",
+          "Bước 2: Lựa chọn công thức hoặc phương pháp biến đổi toán học phù hợp.",
+          "Bước 3: Lập sơ đồ / biểu thức toán học tương ứng và tính toán từng bước.",
+          "Bước 4: Kiểm tra lại tính hợp lý của các bước và tự đưa ra kết luận.",
         ];
-        visualAnalogy = "🧮 Phân tích đề ➡️ Thiết lập phép tính ➡️ Rút gọn đáp số";
+        thinkingPrompt = "Em hãy thử áp dụng các bước định hướng trên vào giấy nháp và tính ra kết quả nhé!";
+        visualAnalogy = "🧮 Phân tích đề ➡️ Thiết lập công thức ➡️ Tính toán từng bước";
+        hiddenAnswer = "Tự tính toán theo các bước hướng dẫn trên";
       }
 
       return res.json({
-        finalAnswer,
-        steps,
+        guidingSteps,
+        thinkingPrompt,
         visualAnalogy,
         explanation,
         encouragement,
+        hiddenAnswer,
       });
     }
 
-    const prompt = `Bạn là một Gia Sư Toán Học AI thân thiện, kiên nhẫn và vui vẻ dành cho học sinh tiểu học và trung học.
-Hãy giải bài toán sau đây theo cấp độ học tập: "${gradeLevel || "Tiểu học"}"
+    const prompt = `Bạn là một Gia Sư Toán Học AI Sư Phạm dành cho học sinh Việt Nam.
+NGUYÊN TẮC CỐT LÕI QUAN TRỌNG NHẤT:
+- TUYỆT ĐỐI KHÔNG ĐƯỢC ĐƯA RA NGAY ĐÁP SỐ CUỐI CÙNG TRONG LỜI HƯỚNG DẪN.
+- Mục tiêu là HƯỚNG DẪN PHƯƠNG PHÁP, ĐỊNH HƯỚNG TƯ DUY TỪNG BƯỚC để học sinh tự làm, tự tính toán ra kết quả.
+
+Cấp độ học tập: "${gradeLevel || "Tiểu học / THCS"}"
 Đề bài: "${problemText}"
 
-Hãy trả về định dạng JSON duy nhất như sau:
+Hãy trả về duy nhất định dạng JSON như sau:
 {
-  "finalAnswer": "Kết quả ngắn gọn nhất (ví dụ: '15' hoặc 'x = 8' hoặc '2/5')",
-  "steps": [
-    "Bước 1: ...",
-    "Bước 2: ...",
-    "Bước 3: ..."
+  "guidingSteps": [
+    "Bước 1 (Phân tích): ...",
+    "Bước 2 (Công thức / Phương pháp): ...",
+    "Bước 3 (Gợi ý tính toán): ...",
+    "Bước 4 (Định hướng bước cuối): ..."
   ],
-  "visualAnalogy": "Minh họa bằng hình vẽ/emoji ngắn gọn (ví dụ: 🍎🍎🍎 + 🍎🍎 = 🍎🍎🍎🍎🍎 hoặc 5 nhóm x 3 học sinh = 15 học sinh)",
-  "explanation": "Lời giảng chi tiết, dễ hiểu, động viên học sinh (viết bằng Markdown, khoảng 2-3 đoạn ngắn)",
-  "encouragement": "Lời khen hoặc lời khuyên học tập tích cực"
+  "thinkingPrompt": "Câu hỏi gợi mở ngắn gọn để học sinh tự hoàn thành phép tính cuối cùng (Ví dụ: 'Em hãy tính xem 45 + 15 bằng bao nhiêu rồi chia cho 3 nhé!')",
+  "visualAnalogy": "Minh họa sơ đồ/emoji ngắn gọn định hướng phương pháp (Ví dụ: 🍎 + 🍎🍎 = ? hoặc 3x = 45 + 15 ➡️ x = ?)",
+  "explanation": "Lời giải thích phương pháp sư phạm, cách tư duy mạch lạc dễ hiểu (khoảng 2 đoạn ngắn bằng tiếng Việt chuẩn)",
+  "encouragement": "Lời động viên khích lệ học sinh tự tin tư duy và rèn luyện tính toán độc lập",
+  "hiddenAnswer": "Đáp số ngắn gọn (chỉ dùng để đối chiếu khi học sinh chủ động mở khóa kiểm tra, ví dụ: 'x = 20' hoặc '15 chiếc')"
 }`;
 
     const response = await ai.models.generateContent({
@@ -181,7 +183,7 @@ Hãy trả về định dạng JSON duy nhất như sau:
       contents: [{ text: prompt }],
       config: {
         responseMimeType: "application/json",
-        temperature: 0.3,
+        temperature: 0.2,
       },
     });
 
@@ -191,9 +193,9 @@ Hãy trả về định dạng JSON duy nhất như sau:
 
     return res.json(parsedData);
   } catch (error: any) {
-    console.error("Lỗi khi giải toán với Gemini:", error);
+    console.error("Lỗi khi hướng dẫn giải toán qua Gemini:", error);
     return res.status(500).json({
-      error: "Không thể giải toán qua AI",
+      error: "Không thể nhận hướng dẫn giải toán qua AI",
       details: error.message,
     });
   }
