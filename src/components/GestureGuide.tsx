@@ -368,6 +368,21 @@ export const GestureGuide: React.FC = () => {
               </p>
             </div>
           </div>
+
+          <div className="p-4 rounded-2xl bg-cyan-50 border border-cyan-200 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-cyan-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-xs">
+              5
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-cyan-950">Bảng vẽ 3D trên không (1 Bàn tay Siêu Tốc)</h4>
+              <p className="text-xs text-cyan-900 mt-0.5 space-y-0.5">
+                <span>• <strong>Giơ ngón trỏ ☝️:</strong> Bật bảng vẽ không gian.</span><br />
+                <span>• <strong>Chụm ngón ✍️:</strong> Vẽ nét neon 3D.</span><br />
+                <span>• <strong>Nắm tay ✊:</strong> Tự động chốt biểu thức và tính kết quả ngay tức thì.</span><br />
+                <span>• <strong>Xòe tay 🖐️:</strong> Xóa nét vẽ & trả quyền về đếm ngón tay bình thường.</span>
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>

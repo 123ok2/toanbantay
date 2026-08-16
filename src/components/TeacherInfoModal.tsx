@@ -88,6 +88,20 @@ export const TeacherInfoModal: React.FC<TeacherInfoModalProps> = ({
             </p>
           </div>
 
+          {/* Air Canvas 3D Feature */}
+          <div className="p-4 rounded-2xl bg-cyan-50 border border-cyan-200">
+            <div className="flex items-center gap-2 font-bold text-cyan-950 mb-1">
+              <Sparkles className="w-4 h-4 text-cyan-600" />
+              <span>✨ Bảng vẽ 3D trên không (1 Bàn tay Siêu Tốc & Mượt Mà)</span>
+            </div>
+            <div className="text-cyan-950 text-xs space-y-1.5">
+              <p>• <strong>1. Kích hoạt (Bật bảng):</strong> Giơ ngón trỏ (<code>INDEX_FINGER_UP</code> ☝️). Hệ thống kích hoạt ngay bảng vẽ 3D và khóa tạm tính năng cũ.</p>
+              <p>• <strong>2. Vẽ nét 3D:</strong> Chụm ngón cái & ngón trỏ (<code>PINCH</code> ✍️) để vẽ nét neon lơ lửng trong không gian.</p>
+              <p>• <strong>3. Tính toán (Submit & Calculate):</strong> Nắm tay (<code>FIST</code> ✊) ➔ Tự động chốt biểu thức, tính kết quả bằng Vector Math Engine và render kết quả 3D tức thì!</p>
+              <p>• <strong>4. Xóa & Trả quyền (Reset):</strong> Xòe bàn tay 5 ngón (<code>OPEN_PALM</code> 🖐️) ➔ Xóa toàn bộ nét vẽ và trả quyền về tính năng đếm ngón tay.</p>
+            </div>
+          </div>
+
           {/* Safety & Privacy Notice */}
           <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900">
             <div className="flex items-center gap-2 font-bold mb-1">

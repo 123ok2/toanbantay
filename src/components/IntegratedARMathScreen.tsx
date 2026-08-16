@@ -25,6 +25,10 @@ import {
   AlertCircle,
   Eye,
   Settings2,
+  Paintbrush,
+  Trash2,
+  Palette,
+  Undo2,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
@@ -32,6 +36,11 @@ import { classifyMultipleHands, analyzeSingleHandFingers } from "../utils/gestur
 import { GESTURE_DICTIONARY } from "../utils/gestureDictionary";
 import { RecognitionResult } from "../types";
 import { soundManager } from "../utils/soundEffects";
+import {
+  airCanvasEngine,
+  AirCanvasFrameData,
+  AIR_CANVAS_COLORS,
+} from "../utils/airCanvasEngine";
 import {
   MathQuestion,
   MathGradeLevel,
@@ -90,6 +99,32 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
   const [holdProgress, setHoldProgress] = useState<number>(0);
   const [isHandMoving, setIsHandMoving] = useState<boolean>(false);
 
+  // Air-Canvas 3D Virtual Board State
+  const [isAirCanvasActive, setIsAirCanvasActive] = useState<boolean>(false);
+  const [airCanvasDrawMode, setAirCanvasDrawMode] = useState<"PINCH" | "INDEX_AIR_PEN">("PINCH");
+  const [airCanvasHint, setAirCanvasHint] = useState<string>("Giơ ngón trỏ ☝️ để Bật Bảng vẽ 3D");
+  const [airCanvasColor, setAirCanvasColor] = useState<string>(AIR_CANVAS_COLORS[0]);
+  const [airCanvasOcr, setAirCanvasOcr] = useState<any>(null);
+  const [airCanvasStrokesCount, setAirCanvasStrokesCount] = useState<number>(0);
+
+  // Gesture Activations & Synergy States
+  const [twoHandsCloseProgress, setTwoHandsCloseProgress] = useState<number>(0);
+  const [tenFingersArenaProgress, setTenFingersArenaProgress] = useState<number>(0);
+  const [activationToast, setActivationToast] = useState<{ message: string; type: "canvas" | "arena" } | null>(null);
+
+  // Gesture timers & stability refs
+  const tenFingersHoldStartRef = useRef<number>(0);
+  const arenaGestureCooldownRef = useRef<number>(0);
+  const toastTimeoutRef = useRef<any>(null);
+
+  const showToast = useCallback((message: string, type: "canvas" | "arena") => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setActivationToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setActivationToast(null);
+    }, 2800);
+  }, []);
+
   // Hand stability refs
   const prevHandPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const stableFingerCountRef = useRef<number | null>(null);
@@ -134,7 +169,7 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
             delegate: "GPU",
           },
           runningMode: "VIDEO",
-          numHands: 2,
+          numHands: 2, // Supports 1-hand & 2-hand tracking (counting up to 10 fingers & 2-hand math)
           minHandDetectionConfidence: 0.5,
           minHandPresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
@@ -397,15 +432,109 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
             });
           });
 
-          // Classify gestures & fingers
+          // =========================================================================
+          // MODULE 2: AIR-CANVAS 3D PARALLEL PROCESSING & OVERRIDE CONTROLLER
+          // =========================================================================
+          if (activeMode === "math") {
+            airCanvasEngine.setArenaContext({
+              question: currentQ.problemStr,
+              correctAnswer: currentQ.correctAnswer,
+              isSolved: feedbackState === "correct",
+            });
+          } else {
+            airCanvasEngine.setArenaContext(null);
+          }
+
+          const airCanvasFrame = airCanvasEngine.processHands(
+            results.landmarks as any,
+            canvas.width,
+            canvas.height
+          );
+
+          setIsAirCanvasActive(airCanvasFrame.isActive);
+          setAirCanvasHint(airCanvasFrame.gestureHint);
+          setAirCanvasOcr(airCanvasFrame.fastOcr);
+          setAirCanvasStrokesCount(airCanvasFrame.strokesCount);
+          setTwoHandsCloseProgress(airCanvasFrame.twoHandsCloseProgress || 0);
+
+          if (airCanvasFrame.twoHandsCloseProgress >= 100) {
+            showToast("✨ Đã kích hoạt Bảng vẽ 3D (Chụm 2 tay 1s)!", "canvas");
+          }
+
+          // === COOPERATIVE VALIDATION: AIR-CANVAS & MULTI-HAND COUNTING ===
+          // 1. Air-Canvas Fast Math Engine Auto-Validation
+          if (
+            activeMode === "math" &&
+            feedbackState === "idle" &&
+            airCanvasFrame.fastOcr &&
+            airCanvasFrame.fastOcr.calculatedValue === currentQ.correctAnswer
+          ) {
+            handleValidateAnswer(airCanvasFrame.fastOcr.calculatedValue);
+          }
+
+          // 2. Multi-Hand Gesture & Finger Counting (1 or 2 hands, 0-10 fingers)
           const classified = classifyMultipleHands(results.landmarks as any);
           setCurrentResult(classified);
           if (onGestureDetected) onGestureDetected(classified);
 
-          // === YÊU CẦU 3: KIỂM TRA ĐỘ ỔN ĐỊNH BÀN TAY (HAND STABILITY & MOTION FILTER) ===
-          // Khi bàn tay chưa giữ nguyên, còn chuyển động lung tung -> CHỈ NHẬN DIỆN BÀN TAY, CHƯA CÔNG NHẬN ĐÁP ÁN.
-          // Chỉ khi bàn tay đứng yên và giữ nguyên tư thế đủ thời gian -> Mới chính thức công nhận kết quả.
           const nowMs = Date.now();
+
+          // =========================================================================
+          // GESTURE 1: GIƠ 2 BÀN TAY 10 NGÓN 1S -> KÍCH HOẠT ĐẤU TRƯỜNG TOÁN HỌC
+          // (Không nhầm với đáp án câu hỏi có số 10)
+          // =========================================================================
+          if (
+            classified.handDetected &&
+            classified.fingerCount === 10 &&
+            classified.handCount >= 2 &&
+            !airCanvasFrame.isDrawing
+          ) {
+            if (activeMode !== "math") {
+              // Khi chưa ở trong Đấu trường: Giơ 10 ngón 1s để VÀO ĐẤU TRƯỜNG
+              if (tenFingersHoldStartRef.current === 0) {
+                tenFingersHoldStartRef.current = nowMs;
+              }
+              const holdTime = nowMs - tenFingersHoldStartRef.current;
+              const prog = Math.min(100, Math.round((holdTime / 1000) * 100));
+              setTenFingersArenaProgress(prog);
+
+              if (prog >= 100 && nowMs - arenaGestureCooldownRef.current > 1500) {
+                setActiveMode("math");
+                soundManager.playVictoryFanfare();
+                soundManager.speakText("Đã kích hoạt Đấu trường toán học!");
+                showToast("⚔️ ĐÃ KÍCH HOẠT ĐẤU TRƯỜNG TOÁN HỌC! (Giơ 10 ngón 1s)", "arena");
+                arenaGestureCooldownRef.current = nowMs;
+                tenFingersHoldStartRef.current = 0;
+                setTenFingersArenaProgress(0);
+              }
+            } else if (currentQ.correctAnswer !== 10) {
+              // Khi đang ở trong Đấu trường nhưng đáp án KHÔNG PHẢI LÀ 10:
+              // Không chấm sai số 10, hiển thị xác nhận trạng thái Đấu trường khi giữ 1s
+              if (tenFingersHoldStartRef.current === 0) {
+                tenFingersHoldStartRef.current = nowMs;
+              }
+              const holdTime = nowMs - tenFingersHoldStartRef.current;
+              const prog = Math.min(100, Math.round((holdTime / 1000) * 100));
+              setTenFingersArenaProgress(prog);
+
+              if (prog >= 100 && nowMs - arenaGestureCooldownRef.current > 2500) {
+                showToast("⚔️ ĐANG Ở TRONG ĐẤU TRƯỜNG TOÁN HỌC!", "arena");
+                arenaGestureCooldownRef.current = nowMs;
+                tenFingersHoldStartRef.current = 0;
+                setTenFingersArenaProgress(0);
+              }
+            } else {
+              // Khi đang ở trong Đấu trường VÀ đáp án ĐÚNG LÀ 10:
+              // Sẽ được xử lý bởi logic nộp bài toán bên dưới bình thường (+100 điểm)
+              setTenFingersArenaProgress(0);
+              tenFingersHoldStartRef.current = 0;
+            }
+          } else {
+            tenFingersHoldStartRef.current = 0;
+            setTenFingersArenaProgress(0);
+          }
+
+          // KIỂM TRA ĐỘ ỔN ĐỊNH BÀN TAY (HAND STABILITY & MOTION FILTER)
           const firstHand = results.landmarks[0];
           let handIsMoving = false;
 
@@ -421,7 +550,6 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
               const dx = currentPos.x - prevHandPosRef.current.x;
               const dy = currentPos.y - prevHandPosRef.current.y;
               const dist = Math.sqrt(dx * dx + dy * dy);
-              // Calculate normalized velocity
               const velocity = (dist / dt) * 1000;
 
               if (velocity > 0.45 || dist > MOTION_THRESHOLD) {
@@ -433,28 +561,39 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
 
           setIsHandMoving(handIsMoving);
 
-          if (activeMode === "math" && classified.handDetected && classified.fingerCount >= 0) {
+          // XỬ LÝ NỘP ĐÁP ÁN TOÁN BẰNG NGÓN TAY (FINGER COUNT VALIDATION)
+          if (
+            activeMode === "math" &&
+            classified.handDetected &&
+            classified.fingerCount >= 0 &&
+            !airCanvasFrame.isDrawing
+          ) {
             const detectedNumber = classified.fingerCount;
 
-            // If hand is shaking or moving around rapidly, or finger count just changed -> reset hold timer
-            if (handIsMoving) {
+            // Nếu câu hỏi không phải 10 mà giơ 10 ngón (cử chỉ đấu trường), không nộp bài sai
+            const isIntentional10Gesture = detectedNumber === 10 && currentQ.correctAnswer !== 10;
+
+            if (isIntentional10Gesture) {
+              stableHoldStartRef.current = 0;
+              setHoldProgress(0);
+            } else if (handIsMoving) {
               stableHoldStartRef.current = 0;
               setHoldProgress(0);
             } else if (stableFingerCountRef.current !== detectedNumber) {
-              // Finger count just changed, restart stability timer
               stableFingerCountRef.current = detectedNumber;
               stableHoldStartRef.current = nowMs;
               setHoldProgress(10);
             } else {
-              // Hand is stationary and fingers remain steady -> accumulate hold progress
               if (stableHoldStartRef.current === 0) {
                 stableHoldStartRef.current = nowMs;
               }
               const holdDuration = nowMs - stableHoldStartRef.current;
-              const progress = Math.min(100, Math.round((holdDuration / REQUIRED_HOLD_TIME_MS) * 100));
+              const progress = Math.min(
+                100,
+                Math.round((holdDuration / REQUIRED_HOLD_TIME_MS) * 100)
+              );
               setHoldProgress(progress);
 
-              // ONLY ACCEPT ANSWER WHEN HAND HAS BEEN HELD COMPLETELY STEADY
               if (progress >= 100) {
                 if (detectedNumber === currentQ.correctAnswer && feedbackState === "idle") {
                   handleValidateAnswer(detectedNumber);
@@ -469,6 +608,26 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
             setHoldProgress(0);
           }
         } else {
+          // No hand in frame: keep processing Air-Canvas gracefully and preserve strokes
+          if (activeMode === "math") {
+            airCanvasEngine.setArenaContext({
+              question: currentQ.problemStr,
+              correctAnswer: currentQ.correctAnswer,
+              isSolved: feedbackState === "correct",
+            });
+          } else {
+            airCanvasEngine.setArenaContext(null);
+          }
+
+          const airCanvasFrame = airCanvasEngine.processHands([], canvas.width, canvas.height);
+          setIsAirCanvasActive(airCanvasFrame.isActive);
+          setAirCanvasHint(airCanvasFrame.gestureHint);
+          setAirCanvasOcr(airCanvasFrame.fastOcr);
+          setAirCanvasStrokesCount(airCanvasFrame.strokesCount);
+          setTwoHandsCloseProgress(0);
+          setTenFingersArenaProgress(0);
+          tenFingersHoldStartRef.current = 0;
+
           setCurrentResult(null);
           prevHandPosRef.current = null;
           stableFingerCountRef.current = null;
@@ -476,6 +635,9 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
           setHoldProgress(0);
           setIsHandMoving(false);
         }
+
+        // ALWAYS render 3D Air-Canvas holographic layers, strokes, particles, and interactive reticle
+        airCanvasEngine.renderToCanvas(ctx, canvas.width, canvas.height);
       } catch (err) {
         console.error("Lỗi phân tích khung hình MediaPipe:", err);
       }
@@ -513,9 +675,9 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
       {/* =========================================================================
           TOP UNIFIED AR HUD: BÀI TOÁN & THÔNG SỐ TRẬN ĐẤU (Floating seamlessly)
          ========================================================================= */}
-      <div className="bg-gradient-to-b from-slate-950/95 via-indigo-950/90 to-transparent p-2.5 sm:p-4 z-20 border-b border-white/10 backdrop-blur-md">
+      <div className="bg-gradient-to-b from-slate-950/95 via-indigo-950/90 to-transparent p-2 sm:p-3 z-20 border-b border-white/10 backdrop-blur-md flex flex-col gap-1.5 sm:gap-2">
         {/* Top Header Row: Mode Switch, Grade Selector & Stats */}
-        <div className="flex items-center justify-between gap-1.5 flex-wrap mb-2">
+        <div className="flex items-center justify-between gap-1.5 flex-wrap">
           {/* Left: Mode & Level Selector */}
           <div className="flex items-center gap-1 sm:gap-2">
             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-orange-500 to-rose-500 flex items-center justify-center text-slate-950 shadow-md shrink-0">
@@ -528,27 +690,45 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
                 onClick={() => {
                   soundManager.playClick();
                   setActiveMode("math");
+                  airCanvasEngine.setActive(false);
                 }}
                 className={`px-2 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-xs font-black transition-all cursor-pointer ${
-                  activeMode === "math"
+                  activeMode === "math" && !isAirCanvasActive
                     ? "bg-amber-400 text-slate-950 shadow-xs"
                     : "text-indigo-200 hover:text-white"
                 }`}
               >
-                🧮 Đấu Trường Toán
+                🧮 Đấu Trường
               </button>
               <button
                 onClick={() => {
                   soundManager.playClick();
                   setActiveMode("free");
+                  airCanvasEngine.setActive(false);
                 }}
                 className={`px-2 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-xs font-black transition-all cursor-pointer ${
-                  activeMode === "free"
+                  activeMode === "free" && !isAirCanvasActive
                     ? "bg-indigo-600 text-white shadow-xs"
                     : "text-indigo-200 hover:text-white"
                 }`}
               >
-                ✨ Nhận Diện Tự Do
+                ✨ Nhận Diện
+              </button>
+              <button
+                onClick={() => {
+                  soundManager.playClick();
+                  const nextActive = airCanvasEngine.toggleActive();
+                  setIsAirCanvasActive(nextActive);
+                }}
+                className={`px-2 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
+                  isAirCanvasActive
+                    ? "bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30 animate-pulse font-extrabold"
+                    : "text-cyan-300 hover:text-cyan-100 hover:bg-white/5"
+                }`}
+                title="Bật/Tắt Bảng vẽ 3D trong không gian ảo"
+              >
+                <Paintbrush className="w-3 h-3" />
+                <span>Bảng 3D</span>
               </button>
             </div>
 
@@ -611,80 +791,104 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
 
         {/* MATH PROBLEM BOARD (When in Math Mode) */}
         {activeMode === "math" ? (
-          <div className="bg-gradient-to-r from-indigo-900/70 via-purple-900/70 to-slate-900/80 border border-indigo-400/30 rounded-xl p-2 sm:p-3 flex items-center justify-between flex-wrap gap-2 shadow-inner">
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-              <span className="text-[10px] sm:text-[11px] font-bold text-indigo-300 bg-white/10 px-2 py-0.5 rounded-full border border-white/10">
-                Câu {currentQuestionIndex + 1}/{questionPool.length}
+          <div className="bg-gradient-to-r from-indigo-950/90 via-purple-950/80 to-slate-900/90 border border-indigo-500/30 rounded-xl p-1.5 sm:p-2.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-inner">
+            {/* Left: Question info & Math Expression */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap min-w-0">
+              {/* Question Number */}
+              <span className="text-[9px] sm:text-[10px] font-bold text-indigo-300 bg-white/10 px-1.5 py-0.5 rounded-md border border-white/10 shrink-0">
+                #{currentQuestionIndex + 1}/{questionPool.length}
               </span>
 
-              {/* Topic & Difficulty Badges */}
+              {/* Topic Badge (compact) */}
               {currentQ.topic && (
-                <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-400/30">
+                <span className="text-[8px] sm:text-[10px] font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded-md border border-amber-400/25 truncate max-w-[90px] sm:max-w-none shrink-0">
                   {currentQ.topic}
                 </span>
               )}
 
+              {/* Difficulty Badge */}
               {currentQ.difficulty && (
                 <span
-                  className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                  className={`hidden xs:inline-block text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-md border shrink-0 ${
                     currentQ.difficulty === "Dễ"
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
                       : currentQ.difficulty === "Trung bình"
-                      ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
-                      : "bg-purple-500/20 text-purple-300 border-purple-500/30"
+                      ? "bg-blue-500/15 text-blue-300 border-blue-500/25"
+                      : "bg-purple-500/15 text-purple-300 border-purple-500/25"
                   }`}
                 >
                   {currentQ.difficulty}
                 </span>
               )}
 
-              <div className="text-2xl sm:text-4xl font-black text-white tracking-wider font-mono drop-shadow-md">
+              {/* Main Math Formula (Compact & High Contrast) */}
+              <div className="text-base sm:text-2xl md:text-3xl font-black text-white tracking-wide font-mono drop-shadow-sm whitespace-nowrap">
                 {currentQ.problemStr}
               </div>
 
-              <div className="hidden sm:block text-xs font-bold text-amber-300 bg-black/30 px-2.5 py-1 rounded-lg border border-amber-400/20">
-                {currentQ.emojiAnalogy}
-              </div>
+              {/* Visual emoji hint on larger screens */}
+              {currentQ.emojiAnalogy && (
+                <div className="hidden lg:block text-[11px] font-bold text-amber-200 bg-black/40 px-2 py-0.5 rounded-md border border-amber-400/20">
+                  {currentQ.emojiAnalogy}
+                </div>
+              )}
             </div>
 
-            {/* Action buttons: Random, Dynamic, Next */}
-            <div className="flex items-center gap-1.5 ml-auto">
+            {/* Right: Compact Action Buttons */}
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
               <button
                 onClick={handleRandomQuestion}
-                className="text-[10px] sm:text-xs font-bold text-amber-200 hover:text-amber-100 bg-amber-500/20 hover:bg-amber-500/30 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-amber-400/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                className="text-[9px] sm:text-xs font-bold text-amber-200 hover:text-amber-100 bg-amber-500/20 hover:bg-amber-500/30 px-1.5 sm:px-2 py-1 rounded-lg border border-amber-400/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
                 title="Chọn một câu ngẫu nhiên trong khối lớp"
               >
-                <span>🎲 Đổi ngẫu nhiên</span>
+                <span>🎲</span>
+                <span className="hidden sm:inline">Đổi</span>
               </button>
 
               <button
                 onClick={handleGenerateDynamic}
-                className="text-[10px] sm:text-xs font-bold text-cyan-200 hover:text-cyan-100 bg-cyan-500/20 hover:bg-cyan-500/30 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-cyan-400/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                className="text-[9px] sm:text-xs font-bold text-cyan-200 hover:text-cyan-100 bg-cyan-500/20 hover:bg-cyan-500/30 px-1.5 sm:px-2 py-1 rounded-lg border border-cyan-400/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
                 title="Tạo đề toán số ngẫu nhiên không giới hạn"
               >
-                <Sparkles className="w-3 h-3 text-cyan-300" />
-                <span className="hidden sm:inline">Tạo câu mới</span>
+                <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-300" />
+                <span className="hidden sm:inline">Mới</span>
               </button>
 
               <button
                 onClick={handleNextQuestion}
-                className="text-[10px] sm:text-xs font-bold text-indigo-200 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 sm:py-1.5 rounded-xl border border-white/10 cursor-pointer transition-all active:scale-95"
+                className="text-[9px] sm:text-xs font-bold text-indigo-100 hover:text-white flex items-center gap-0.5 sm:gap-1 bg-indigo-600/60 hover:bg-indigo-600 px-1.5 sm:px-2 py-1 rounded-lg border border-indigo-400/40 cursor-pointer transition-all active:scale-95"
               >
-                <span>Kế tiếp</span>
-                <ArrowRight className="w-3 h-3" />
+                <span>Tiếp</span>
+                <ArrowRight className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
               </button>
             </div>
           </div>
         ) : (
-          <div className="bg-indigo-900/40 border border-indigo-400/30 rounded-xl p-2 sm:p-2.5 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span className="text-xs font-bold text-slate-200">
-                Chế độ Nhận diện Tự do: Hãy giơ cử chỉ bàn tay (0-10 ngón, Like, Peace, OK, Trái tim...)
+          <div className="bg-indigo-950/60 border border-indigo-500/25 rounded-xl p-1.5 sm:p-2 flex items-center justify-between gap-1.5 text-[10px] sm:text-xs">
+            <div className="flex items-center gap-1.5 text-slate-300">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-pulse" />
+              <span className="font-semibold truncate">
+                Nhận diện Tự do: Giơ ngón tay (0-10), Like, Peace, OK, Trái tim...
               </span>
             </div>
           </div>
         )}
+
+        {/* GESTURE SHORTCUTS HUD GUIDE ROW */}
+        <div className="flex items-center justify-between gap-1 flex-wrap pt-0.5 text-[8px] sm:text-[9px] text-slate-300 font-semibold">
+          <div className="flex items-center gap-1 bg-cyan-500/10 text-cyan-300 px-1.5 py-0.5 rounded-full border border-cyan-400/20">
+            <span>👐</span>
+            <span>Chụm 2 tay (1s): Bật/Tắt Bảng 3D</span>
+          </div>
+          <div className="flex items-center gap-1 bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-400/20">
+            <span>🖐️🖐️</span>
+            <span>Giơ 10 ngón (1s): Đấu Trường</span>
+          </div>
+          <div className="hidden sm:flex items-center gap-1 bg-purple-500/10 text-purple-300 px-1.5 py-0.5 rounded-full border border-purple-400/20">
+            <span>✍️</span>
+            <span>Chụm ngón vẽ • ✊ Nắm tay tính</span>
+          </div>
+        </div>
       </div>
 
       {/* =========================================================================
@@ -733,106 +937,268 @@ export const IntegratedARMathScreen: React.FC<IntegratedARMathScreenProps> = ({
            ========================================================================= */}
         {isStreaming && (
           <>
-            {/* Top Left Live Status Pill */}
-            <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5 flex-wrap">
-              <div className="bg-slate-950/80 backdrop-blur-md border border-white/15 px-2.5 py-1 rounded-full text-[10px] font-bold text-emerald-400 flex items-center gap-1.5 shadow-lg">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>AI Live ({fps} FPS)</span>
+            {/* Activation Toast Notification (Top Center) */}
+            {activationToast && (
+              <div
+                className={`absolute top-12 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-2xl shadow-2xl border backdrop-blur-md flex items-center gap-2 animate-bounce transition-all ${
+                  activationToast.type === "arena"
+                    ? "bg-amber-500/95 text-slate-950 border-amber-300 shadow-amber-500/40 font-black text-xs sm:text-sm"
+                    : "bg-cyan-500/95 text-slate-950 border-cyan-300 shadow-cyan-500/40 font-black text-xs sm:text-sm"
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-slate-950 animate-spin" />
+                <span>{activationToast.message}</span>
               </div>
+            )}
 
-              {currentResult && currentResult.handCount > 0 && (
-                <div className="bg-slate-950/80 backdrop-blur-md border border-indigo-400/30 px-2.5 py-1 rounded-full text-[10px] font-bold text-amber-300 flex items-center gap-1 shadow-lg">
-                  <Hand className="w-3 h-3 text-amber-400" />
-                  <span>{currentResult.handCount >= 2 ? "2 Bàn tay" : "1 Bàn tay"}</span>
+            {/* Real-time Gesture Progress Overlay 1: Chụm 2 bàn tay 1s để bật Bảng 3D */}
+            {twoHandsCloseProgress > 0 && twoHandsCloseProgress < 100 && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-slate-950/90 border border-cyan-400 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col items-center gap-1.5 min-w-[240px]">
+                <div className="flex items-center gap-2 text-xs font-black text-cyan-300">
+                  <span className="text-xl animate-pulse">👐</span>
+                  <span>Đang chụm 2 tay để bật Bảng 3D:</span>
+                  <span className="text-white font-mono">{twoHandsCloseProgress}%</span>
                 </div>
-              )}
-            </div>
-
-            {/* Top Right Live Gesture Detection Card Overlay */}
-            <div className="absolute top-2.5 right-2.5 z-20 max-w-[180px] sm:max-w-[220px] bg-slate-950/85 backdrop-blur-md border border-indigo-400/40 rounded-xl p-2 shadow-xl flex items-center gap-2">
-              <div className="text-2xl sm:text-3xl shrink-0">
-                {currentResult ? currentResult.emoji : "✋"}
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-cyan-400/40">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-75 rounded-full"
+                    style={{ width: `${twoHandsCloseProgress}%` }}
+                  />
+                </div>
+                <span className="text-[9px] text-cyan-200">Giữ yên 1 giây để mở Bảng vẽ 3D</span>
               </div>
-              <div className="overflow-hidden">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 leading-none">
-                  AI Nhận Diện
-                </div>
-                <div className="text-xs sm:text-sm font-black text-white truncate">
-                  {currentResult && currentResult.handDetected
-                    ? `${currentResult.fingerCount} Ngón tay`
-                    : "Đang dò bàn tay..."}
-                </div>
-                {currentResult && currentResult.name && (
-                  <div className="text-[9px] text-amber-300 font-bold truncate">
-                    {currentResult.name} ({currentResult.confidence}%)
-                  </div>
-                )}
-              </div>
-            </div>
+            )}
 
-            {/* CENTER AR EVALUATION & STABILITY HOLD BANNER */}
-            {activeMode === "math" && (
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[92%] sm:w-auto max-w-md">
-                {feedbackState === "correct" ? (
-                  <div className="bg-emerald-500/90 text-slate-950 font-black px-4 py-2 rounded-2xl shadow-2xl border border-emerald-300 flex items-center justify-center gap-2 animate-bounce">
-                    <CheckCircle2 className="w-5 h-5 text-slate-950 shrink-0" />
-                    <span className="text-xs sm:text-sm">
-                      CHÍNH XÁC: KẾT QUẢ LÀ {currentQ.correctAnswer}! 🎉 (+100đ)
-                    </span>
+            {/* Real-time Gesture Progress Overlay 2: Giơ 10 ngón 1s để kích hoạt Đấu Trường */}
+            {tenFingersArenaProgress > 0 && tenFingersArenaProgress < 100 && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-slate-950/90 border border-amber-400 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col items-center gap-1.5 min-w-[240px]">
+                <div className="flex items-center gap-2 text-xs font-black text-amber-300">
+                  <span className="text-xl animate-pulse">🖐️🖐️</span>
+                  <span>Đang giơ 10 ngón vào Đấu Trường:</span>
+                  <span className="text-white font-mono">{tenFingersArenaProgress}%</span>
+                </div>
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-amber-400/40">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-orange-400 transition-all duration-75 rounded-full"
+                    style={{ width: `${tenFingersArenaProgress}%` }}
+                  />
+                </div>
+                <span className="text-[9px] text-amber-200">Giữ yên 1 giây để kích hoạt Đấu Trường</span>
+              </div>
+            )}
+
+            {/* =========================================================================
+                AIR-CANVAS 3D FLOATING TOOLBAR & HUD (WHEN ACTIVE)
+               ========================================================================= */}
+            {isAirCanvasActive ? (
+              <>
+                {/* Top Center Air-Canvas Control Toolbar */}
+                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 backdrop-blur-md border border-cyan-400/40 rounded-2xl px-3 py-1.5 shadow-2xl flex items-center gap-2">
+                  <div className="flex items-center gap-1 text-[10px] font-bold text-cyan-300 mr-1">
+                    <Paintbrush className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="hidden sm:inline">Vẽ 3D</span>
                   </div>
-                ) : feedbackState === "incorrect" ? (
-                  <div className="bg-rose-500/90 text-white font-black px-4 py-2 rounded-2xl shadow-2xl border border-rose-300 flex items-center justify-center gap-2 animate-pulse">
-                    <XCircle className="w-5 h-5 text-white shrink-0" />
-                    <span className="text-xs sm:text-sm">
-                      Chưa đúng rồi! Hãy tính nháp và đếm lại số ngón nhé!
-                    </span>
+
+                  {/* Draw Mode Switcher */}
+                  <button
+                    onClick={() => {
+                      soundManager.playClick();
+                      const nextMode = airCanvasDrawMode === "PINCH" ? "INDEX_AIR_PEN" : "PINCH";
+                      airCanvasEngine.setDrawMode(nextMode);
+                      setAirCanvasDrawMode(nextMode);
+                    }}
+                    className="px-2 py-1 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/40 cursor-pointer text-[10px] font-bold flex items-center gap-1 transition-all"
+                    title={
+                      airCanvasDrawMode === "PINCH"
+                        ? "Đang ở chế độ Chụm ngón vẽ. Bấm để đổi sang Bút trỏ tự do"
+                        : "Đang ở chế độ Bút trỏ tự do. Bấm để đổi sang Chụm ngón vẽ"
+                    }
+                  >
+                    <span>{airCanvasDrawMode === "PINCH" ? "✍️ Chụm ngón" : "☝️ Bút trỏ"}</span>
+                  </button>
+
+                  {/* Color Palette Dots */}
+                  <div className="flex items-center gap-1 bg-white/10 p-1 rounded-xl">
+                    {AIR_CANVAS_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => {
+                          soundManager.playClick();
+                          airCanvasEngine.setColor(c);
+                          setAirCanvasColor(c);
+                        }}
+                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full transition-all cursor-pointer border ${
+                          airCanvasColor === c
+                            ? "scale-125 border-white shadow-md shadow-white/40 ring-2 ring-cyan-400"
+                            : "border-transparent opacity-70 hover:opacity-100"
+                        }`}
+                        style={{ backgroundColor: c }}
+                        title="Chọn màu nét vẽ neon"
+                      />
+                    ))}
                   </div>
-                ) : (
-                  <div className="bg-slate-950/90 backdrop-blur-md text-slate-200 border border-indigo-400/30 px-3 py-2 rounded-2xl shadow-xl flex flex-col gap-1.5 text-center text-[11px] sm:text-xs">
-                    {/* Guidance Prompt - Không lộ đáp án */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 text-amber-300 font-bold">
-                        <Hand className="w-3.5 h-3.5 animate-pulse" />
-                        <span>💡 Hướng dẫn: Tính nhẩm và <strong className="text-white underline">GIỮ YÊN bàn tay</strong> trước camera</span>
-                      </div>
-                      {currentResult && currentResult.handDetected && (
-                        <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-400/30 shrink-0 font-mono">
-                          {currentResult.fingerCount} ngón
-                        </span>
-                      )}
+
+                  {/* Undo Button */}
+                  <button
+                    onClick={() => {
+                      soundManager.playClick();
+                      airCanvasEngine.undoStroke();
+                      setAirCanvasStrokesCount(airCanvasEngine.strokes.length);
+                    }}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10 cursor-pointer text-[10px] font-bold flex items-center gap-0.5"
+                    title="Hoàn tác nét vẽ trước"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">Hoàn tác</span>
+                  </button>
+
+                  {/* Clear Button */}
+                  <button
+                    onClick={() => {
+                      soundManager.playClick();
+                      airCanvasEngine.clearCanvas();
+                      setAirCanvasStrokesCount(0);
+                      setAirCanvasOcr(null);
+                    }}
+                    className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 cursor-pointer text-[10px] font-bold flex items-center gap-0.5"
+                    title="Xóa toàn bộ nét vẽ"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">Xóa</span>
+                  </button>
+
+                  {/* Exit Air-Canvas Button */}
+                  <button
+                    onClick={() => {
+                      soundManager.playClick();
+                      airCanvasEngine.setActive(false);
+                      setIsAirCanvasActive(false);
+                    }}
+                    className="px-2 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[10px] cursor-pointer transition-all shadow-xs"
+                  >
+                    Đóng Bảng
+                  </button>
+                </div>
+
+                {/* Bottom Center Air-Canvas Gesture Hint & Live OCR Banner */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[92%] sm:w-auto max-w-md">
+                  <div className="bg-slate-950/90 backdrop-blur-md text-cyan-300 border border-cyan-400/40 px-3.5 py-2 rounded-2xl shadow-xl flex flex-col gap-1 text-center text-[11px] sm:text-xs">
+                    <div className="flex items-center justify-center gap-1.5 font-bold text-white">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                      <span>{airCanvasHint}</span>
                     </div>
+                    {airCanvasOcr && airCanvasOcr.formulaDisplay && (
+                      <div className="bg-cyan-500/15 border border-cyan-400/30 rounded-lg py-0.5 px-2 text-cyan-200 font-mono text-[11px]">
+                        {airCanvasOcr.formulaDisplay}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Top Left Live Status Pill */}
+                <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5 flex-wrap">
+                  <div className="bg-slate-950/80 backdrop-blur-md border border-white/15 px-2.5 py-1 rounded-full text-[10px] font-bold text-emerald-400 flex items-center gap-1.5 shadow-lg">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>AI Live ({fps} FPS)</span>
+                  </div>
 
-                    {/* Realtime Hand Stability Status Bar */}
-                    {currentResult && currentResult.handDetected && (
-                      <div className="w-full">
-                        {isHandMoving ? (
-                          <div className="flex items-center justify-center gap-1 text-[10px] text-amber-300 font-bold bg-amber-500/15 py-1 px-2 rounded-lg border border-amber-400/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                            <span>Bàn tay đang di chuyển (Giữ yên để nộp bài)...</span>
+                  {currentResult && currentResult.handCount > 0 && (
+                    <div className="bg-slate-950/80 backdrop-blur-md border border-indigo-400/30 px-2.5 py-1 rounded-full text-[10px] font-bold text-amber-300 flex items-center gap-1 shadow-lg">
+                      <Hand className="w-3 h-3 text-amber-400" />
+                      <span>{currentResult.handCount >= 2 ? "2 Bàn tay" : "1 Bàn tay"}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Top Right Live Gesture Detection Card Overlay */}
+                <div className="absolute top-2.5 right-2.5 z-20 max-w-[180px] sm:max-w-[220px] bg-slate-950/85 backdrop-blur-md border border-indigo-400/40 rounded-xl p-2 shadow-xl flex items-center gap-2">
+                  <div className="text-2xl sm:text-3xl shrink-0">
+                    {currentResult ? currentResult.emoji : "✋"}
+                  </div>
+                  <div className="overflow-hidden">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 leading-none">
+                      AI Nhận Diện
+                    </div>
+                    <div className="text-xs sm:text-sm font-black text-white truncate">
+                      {currentResult && currentResult.handDetected
+                        ? `${currentResult.fingerCount} Ngón tay`
+                        : "Đang dò bàn tay..."}
+                    </div>
+                    {currentResult && currentResult.name && (
+                      <div className="text-[9px] text-amber-300 font-bold truncate">
+                        {currentResult.name} ({currentResult.confidence}%)
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* CENTER AR EVALUATION & STABILITY HOLD BANNER */}
+                {activeMode === "math" && (
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[92%] sm:w-auto max-w-md">
+                    {feedbackState === "correct" ? (
+                      <div className="bg-emerald-500/90 text-slate-950 font-black px-4 py-2 rounded-2xl shadow-2xl border border-emerald-300 flex items-center justify-center gap-2 animate-bounce">
+                        <CheckCircle2 className="w-5 h-5 text-slate-950 shrink-0" />
+                        <span className="text-xs sm:text-sm">
+                          CHÍNH XÁC: KẾT QUẢ LÀ {currentQ.correctAnswer}! 🎉 (+100đ)
+                        </span>
+                      </div>
+                    ) : feedbackState === "incorrect" ? (
+                      <div className="bg-rose-500/90 text-white font-black px-4 py-2 rounded-2xl shadow-2xl border border-rose-300 flex items-center justify-center gap-2 animate-pulse">
+                        <XCircle className="w-5 h-5 text-white shrink-0" />
+                        <span className="text-xs sm:text-sm">
+                          Chưa đúng rồi! Hãy tính nháp và đếm lại số ngón nhé!
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-950/90 backdrop-blur-md text-slate-200 border border-indigo-400/30 px-3 py-2 rounded-2xl shadow-xl flex flex-col gap-1.5 text-center text-[11px] sm:text-xs">
+                        {/* Guidance Prompt - Không lộ đáp án */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                            <Hand className="w-3.5 h-3.5 animate-pulse" />
+                            <span>💡 Hướng dẫn: Tính nhẩm và <strong className="text-white underline">GIỮ YÊN bàn tay</strong> trước camera</span>
                           </div>
-                        ) : holdProgress > 0 ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[10px] font-extrabold text-emerald-300 px-1">
-                              <span>🎯 Giữ yên ổn định để nộp bài:</span>
-                              <span>{holdProgress}%</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-white/10">
-                              <div
-                                className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-75 ease-out rounded-full"
-                                style={{ width: `${holdProgress}%` }}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-[10px] text-slate-300 italic">
-                            Giữ cố định vị trí bàn tay khoảng 1 giây để chốt đáp án
+                          {currentResult && currentResult.handDetected && (
+                            <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-400/30 shrink-0 font-mono">
+                              {currentResult.fingerCount} ngón
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Realtime Hand Stability Status Bar */}
+                        {currentResult && currentResult.handDetected && (
+                          <div className="w-full">
+                            {isHandMoving ? (
+                              <div className="flex items-center justify-center gap-1 text-[10px] text-amber-300 font-bold bg-amber-500/15 py-1 px-2 rounded-lg border border-amber-400/20">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                                <span>Bàn tay đang di chuyển (Giữ yên để nộp bài)...</span>
+                              </div>
+                            ) : holdProgress > 0 ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] font-extrabold text-emerald-300 px-1">
+                                  <span>🎯 Giữ yên ổn định để nộp bài:</span>
+                                  <span>{holdProgress}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-white/10">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-75 ease-out rounded-full"
+                                    style={{ width: `${holdProgress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-300 italic">
+                                Giữ cố định vị trí bàn tay khoảng 1 giây để chốt đáp án
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
                     )}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </>
         )}
